@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VFS QA Tool</title>
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script defer src="app.js?v=4"></script>
+  <script defer src="app.js?v=5"></script>
 </head>
 <body>
   <div class="page-shell">
@@ -227,6 +227,23 @@
                 <label><input type="radio" name="qaDecision" value="correct_skip" /><span>Correct skip</span><small>Skip was valid</small></label>
                 <label><input type="radio" name="qaDecision" value="incorrect_skip" /><span>Incorrect skip</span><small>Should not be skipped</small></label>
               </div>
+
+              <div class="brightness-control" aria-labelledby="brightnessTitle">
+                <div class="brightness-header">
+                  <div>
+                    <h4 id="brightnessTitle">Image brightness</h4>
+                    <p id="brightnessHint">Mark whether the uploaded images are too dark, too bright, or just right.</p>
+                  </div>
+                  <strong id="brightnessValue" class="brightness-value">Perfect</strong>
+                </div>
+                <input id="brightnessSlider" type="range" min="-2" max="2" step="1" value="0" aria-label="Image brightness rating" />
+                <div class="brightness-scale" aria-hidden="true">
+                  <span>Too dark</span>
+                  <span>Perfect</span>
+                  <span>Too bright</span>
+                </div>
+              </div>
+
               <label class="full-width-label">
                 QA notes / error reason
                 <textarea id="qaNotesInput" rows="4" placeholder="Write what was wrong, training notes, or context for the QA result."></textarea>
@@ -278,6 +295,42 @@
               <span>Avg duration</span>
               <strong id="avgDurationMetric">-</strong>
             </article>
+            <article class="metric-card big">
+              <span>Brightness issues</span>
+              <strong id="brightnessIssueMetric">0</strong>
+            </article>
+          </div>
+
+          <h3 class="subheading">Charts</h3>
+          <div class="chart-grid">
+            <section class="chart-card">
+              <div class="chart-card-header">
+                <h4>QA decisions</h4>
+                <span>Result split</span>
+              </div>
+              <div id="decisionChart" class="bar-chart empty-chart">No QA results yet.</div>
+            </section>
+            <section class="chart-card">
+              <div class="chart-card-header">
+                <h4>Error rate by agent</h4>
+                <span>Errors / QA'd</span>
+              </div>
+              <div id="agentErrorChart" class="bar-chart empty-chart">No QA results yet.</div>
+            </section>
+            <section class="chart-card">
+              <div class="chart-card-header">
+                <h4>Brightness feedback</h4>
+                <span>Too dark → too bright</span>
+              </div>
+              <div id="brightnessChart" class="bar-chart empty-chart">No QA results yet.</div>
+            </section>
+            <section class="chart-card">
+              <div class="chart-card-header">
+                <h4>Average duration by agent</h4>
+                <span>Minutes</span>
+              </div>
+              <div id="durationChart" class="bar-chart empty-chart">No QA results yet.</div>
+            </section>
           </div>
 
           <h3 class="subheading">Agent stats</h3>
@@ -292,11 +345,12 @@
                   <th>Error %</th>
                   <th>Skipped checked</th>
                   <th>Incorrect skips</th>
+                  <th>Brightness issues</th>
                   <th>Avg duration</th>
                 </tr>
               </thead>
               <tbody id="agentStatsTable">
-                <tr><td colspan="8" class="table-empty">No QA results yet.</td></tr>
+                <tr><td colspan="9" class="table-empty">No QA results yet.</td></tr>
               </tbody>
             </table>
           </div>
@@ -313,11 +367,12 @@
                   <th>Config</th>
                   <th>Duration</th>
                   <th>QA decision</th>
+                  <th>Brightness</th>
                   <th>QA notes</th>
                 </tr>
               </thead>
               <tbody id="reviewedTasksTable">
-                <tr><td colspan="8" class="table-empty">No reviewed tasks yet.</td></tr>
+                <tr><td colspan="9" class="table-empty">No reviewed tasks yet.</td></tr>
               </tbody>
             </table>
           </div>

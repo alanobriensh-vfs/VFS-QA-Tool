@@ -1,4 +1,4 @@
-const STORAGE_KEY = "vfsQaToolSessionV4";
+const STORAGE_KEY = "vfsQaToolSessionV5";
 
 const VIEW_ORDER = ["uploadView", "sampleView", "reviewView", "dashboardView"];
 
@@ -37,6 +37,22 @@ const COLUMN_ALIASES = {
   taskType: ["TASK TYPE", "TASK_TYPE"],
 };
 
+const BRIGHTNESS_LABELS = {
+  "-2": "Too dark",
+  "-1": "Slightly dark",
+  "0": "Perfect",
+  "1": "Slightly bright",
+  "2": "Too bright",
+};
+
+const BRIGHTNESS_HINTS = {
+  "-2": "Images are too dark and likely need clearer/lightened uploads.",
+  "-1": "Images are a little dark but may still be usable.",
+  "0": "Brightness looks right for QA.",
+  "1": "Images are a little bright but may still be usable.",
+  "2": "Images are too bright or washed out and may need fixing.",
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   attachEvents();
@@ -49,9 +65,11 @@ function cacheElements() {
     "generateSampleBtn", "reshuffleBtn", "parseWarnings", "totalRowsMetric", "candidateRowsMetric",
     "doneRowsMetric", "skippedRowsMetric", "agentBreakdown", "reviewProgress", "reviewProgressBar", "reviewEmpty", "taskCard",
     "taskCounter", "taskTitle", "vfsLink", "taskAgent", "taskStatus", "taskDuration", "taskStart", "taskEnd",
-    "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "prevTaskBtn",
-    "saveReviewBtn", "nextTaskBtn", "reviewedMetric", "errorsMetric", "errorRateMetric", "avgDurationMetric",
-    "agentStatsTable", "reviewedTasksTable", "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
+    "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "brightnessSlider",
+    "brightnessValue", "brightnessHint", "prevTaskBtn", "saveReviewBtn", "nextTaskBtn", "reviewedMetric",
+    "errorsMetric", "errorRateMetric", "avgDurationMetric", "brightnessIssueMetric", "decisionChart",
+    "agentErrorChart", "brightnessChart", "durationChart", "agentStatsTable", "reviewedTasksTable",
+    "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
     "goSampleBtn", "startReviewBtn", "goDashboardBtn", "backUploadBtn", "backSampleBtn", "backReviewBtn", "restartBtn",
     "sampleWorkbookName", "sampleCandidateCount", "sampleSelectedCount", "sampleModeLabel", "sampleRosterTable", "toast"
   ];
@@ -109,6 +127,10 @@ function attachEvents() {
   });
 
   els.qaNotesInput?.addEventListener("blur", saveCurrentReview);
+  els.brightnessSlider?.addEventListener("input", () => {
+    updateBrightnessControl(parseBrightness(els.brightnessSlider.value));
+    saveCurrentReview();
+  });
   els.exportCsvBtn?.addEventListener("click", exportResultsCsv);
   els.exportJsonBtn?.addEventListener("click", exportSessionJson);
   els.loadSavedBtn?.addEventListener("click", loadSavedSession);
@@ -647,7 +669,7 @@ function updateReviewCard() {
   if (state.currentIndex >= state.sample.length) state.currentIndex = state.sample.length - 1;
 
   const task = state.sample[state.currentIndex];
-  const review = state.reviews[task.key] || { decision: "", notes: "" };
+  const review = state.reviews[task.key] || { decision: "", notes: "", brightness: 0 };
   const reviewedCount = getReviewedTasks().length;
   const progressPct = Math.round((reviewedCount / state.sample.length) * 100);
 
@@ -667,6 +689,7 @@ function updateReviewCard() {
   els.taskConfigName.textContent = task.configName || "-";
   els.taskIssueNotes.textContent = task.issueNotes || "No issue notes supplied.";
   els.qaNotesInput.value = review.notes || "";
+  updateBrightnessControl(parseBrightness(review.brightness));
 
   document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
     radio.checked = radio.value === review.decision;
@@ -681,16 +704,21 @@ function saveCurrentReview() {
   if (!state.sample.length) return;
 
   const task = state.sample[state.currentIndex];
+  const existing = state.reviews[task.key] || {};
   const decision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
   const notes = els.qaNotesInput.value.trim();
+  const brightness = parseBrightness(els.brightnessSlider?.value ?? existing.brightness ?? 0);
 
-  if (!decision && !notes) {
+  if (!decision && !notes && brightness === 0) {
     delete state.reviews[task.key];
   } else {
     state.reviews[task.key] = {
       decision,
       notes,
-      reviewedAt: new Date().toISOString(),
+      brightness,
+      reviewedAt: existing.reviewedAt && existing.decision === decision && existing.notes === notes && parseBrightness(existing.brightness) === brightness
+        ? existing.reviewedAt
+        : new Date().toISOString(),
     };
   }
 
@@ -713,39 +741,43 @@ function updateDashboard() {
   const errors = reviewedTasks.filter((item) => isErrorDecision(item.review.decision)).length;
   const durations = reviewedTasks.map((item) => parseFloat(item.task.duration)).filter(Number.isFinite);
   const avgDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : null;
+  const brightnessIssues = reviewedTasks.filter((item) => parseBrightness(item.review.brightness) !== 0).length;
 
   els.reviewedMetric.textContent = formatNumber(reviewedTasks.length);
   els.errorsMetric.textContent = formatNumber(errors);
   els.errorRateMetric.textContent = reviewedTasks.length ? `${Math.round((errors / reviewedTasks.length) * 100)}%` : "0%";
   els.avgDurationMetric.textContent = avgDuration === null ? "-" : `${avgDuration.toFixed(1)} min`;
+  if (els.brightnessIssueMetric) els.brightnessIssueMetric.textContent = formatNumber(brightnessIssues);
   els.exportCsvBtn.disabled = !reviewedTasks.length;
   els.exportJsonBtn.disabled = !state.sample.length;
 
   renderAgentStats(reviewedTasks);
   renderReviewedTasks(reviewedTasks);
+  renderDashboardCharts(reviewedTasks);
 }
 
 function getReviewedTasks() {
   return state.sample
     .map((task, index) => ({ task, review: state.reviews[task.key], sampleNumber: index + 1 }))
-    .filter((item) => item.review?.decision || item.review?.notes);
+    .filter((item) => item.review?.decision || item.review?.notes || parseBrightness(item.review?.brightness) !== 0);
 }
 
 function renderAgentStats(reviewedTasks) {
   if (!reviewedTasks.length) {
-    els.agentStatsTable.innerHTML = `<tr><td colspan="8" class="table-empty">No QA results yet.</td></tr>`;
+    els.agentStatsTable.innerHTML = `<tr><td colspan="9" class="table-empty">No QA results yet.</td></tr>`;
     return;
   }
 
   const byAgent = {};
   reviewedTasks.forEach(({ task, review }) => {
-    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, durations: [] };
+    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, brightnessIssues: 0, durations: [] };
     const bucket = byAgent[task.agent];
     bucket.reviewed += 1;
     if (review.decision === "pass" || review.decision === "correct_skip") bucket.pass += 1;
     if (isErrorDecision(review.decision)) bucket.errors += 1;
     if (task.status.toLowerCase() === "skipped") bucket.skipped += 1;
     if (review.decision === "incorrect_skip") bucket.incorrectSkips += 1;
+    if (parseBrightness(review.brightness) !== 0) bucket.brightnessIssues += 1;
     const duration = parseFloat(task.duration);
     if (Number.isFinite(duration)) bucket.durations.push(duration);
   });
@@ -764,6 +796,7 @@ function renderAgentStats(reviewedTasks) {
         <td>${errorPct}</td>
         <td>${bucket.skipped}</td>
         <td>${bucket.incorrectSkips}</td>
+        <td>${bucket.brightnessIssues}</td>
         <td>${avgDuration}</td>
       </tr>`;
   }).join("");
@@ -771,7 +804,7 @@ function renderAgentStats(reviewedTasks) {
 
 function renderReviewedTasks(reviewedTasks) {
   if (!reviewedTasks.length) {
-    els.reviewedTasksTable.innerHTML = `<tr><td colspan="8" class="table-empty">No reviewed tasks yet.</td></tr>`;
+    els.reviewedTasksTable.innerHTML = `<tr><td colspan="9" class="table-empty">No reviewed tasks yet.</td></tr>`;
     return;
   }
 
@@ -788,8 +821,100 @@ function renderReviewedTasks(reviewedTasks) {
         <td>${configCell}</td>
         <td>${escapeHtml(formatDuration(task.duration))}</td>
         <td><span class="mini-pill ${isErrorDecision(review.decision) ? "error" : "done"}">${escapeHtml(formatDecision(review.decision))}</span></td>
+        <td>${escapeHtml(formatBrightness(review.brightness))}</td>
         <td>${escapeHtml(review.notes || "")}</td>
       </tr>`;
+  }).join("");
+}
+
+function renderDashboardCharts(reviewedTasks) {
+  renderDecisionChart(reviewedTasks);
+  renderAgentErrorChart(reviewedTasks);
+  renderBrightnessChart(reviewedTasks);
+  renderDurationChart(reviewedTasks);
+}
+
+function renderDecisionChart(reviewedTasks) {
+  const labels = [
+    ["pass", "Pass"],
+    ["error", "Error"],
+    ["correct_skip", "Correct skip"],
+    ["incorrect_skip", "Incorrect skip"],
+  ];
+  const items = labels.map(([key, label]) => ({
+    label,
+    value: reviewedTasks.filter((item) => item.review.decision === key).length,
+  }));
+  renderBarChart(els.decisionChart, items, { total: reviewedTasks.length, suffix: "tasks" });
+}
+
+function renderAgentErrorChart(reviewedTasks) {
+  const byAgent = {};
+  reviewedTasks.forEach(({ task, review }) => {
+    byAgent[task.agent] ||= { reviewed: 0, errors: 0 };
+    byAgent[task.agent].reviewed += 1;
+    if (isErrorDecision(review.decision)) byAgent[task.agent].errors += 1;
+  });
+
+  const items = Object.entries(byAgent).sort(([a], [b]) => a.localeCompare(b)).map(([agent, bucket]) => ({
+    label: agent,
+    value: bucket.reviewed ? Math.round((bucket.errors / bucket.reviewed) * 100) : 0,
+    detail: `${bucket.errors}/${bucket.reviewed} errors`,
+  }));
+
+  renderBarChart(els.agentErrorChart, items, { max: 100, suffix: "%" });
+}
+
+function renderBrightnessChart(reviewedTasks) {
+  const labels = ["-2", "-1", "0", "1", "2"];
+  const items = labels.map((key) => ({
+    label: BRIGHTNESS_LABELS[key],
+    value: reviewedTasks.filter((item) => String(parseBrightness(item.review.brightness)) === key).length,
+  }));
+  renderBarChart(els.brightnessChart, items, { total: reviewedTasks.length, suffix: "tasks" });
+}
+
+function renderDurationChart(reviewedTasks) {
+  const byAgent = {};
+  reviewedTasks.forEach(({ task }) => {
+    const duration = parseFloat(task.duration);
+    if (!Number.isFinite(duration)) return;
+    byAgent[task.agent] ||= [];
+    byAgent[task.agent].push(duration);
+  });
+
+  const items = Object.entries(byAgent).sort(([a], [b]) => a.localeCompare(b)).map(([agent, durations]) => {
+    const average = durations.reduce((sum, value) => sum + value, 0) / durations.length;
+    return { label: agent, value: Number(average.toFixed(1)), detail: `${average.toFixed(1)} min` };
+  });
+
+  renderBarChart(els.durationChart, items, { suffix: " min" });
+}
+
+function renderBarChart(container, items, options = {}) {
+  if (!container) return;
+  const positiveItems = items.filter((item) => Number(item.value) > 0);
+  const maxValue = Number.isFinite(options.max)
+    ? options.max
+    : Math.max(1, ...items.map((item) => Number(item.value) || 0));
+
+  if (!items.length || (!positiveItems.length && options.total === 0)) {
+    container.classList.add("empty-chart");
+    container.textContent = "No QA results yet.";
+    return;
+  }
+
+  container.classList.remove("empty-chart");
+  container.innerHTML = items.map((item) => {
+    const value = Number(item.value) || 0;
+    const pct = Math.max(0, Math.min(100, (value / maxValue) * 100));
+    const valueLabel = item.detail || `${value}${options.suffix ? ` ${options.suffix}` : ""}`.replace(" %", "%");
+    return `
+      <div class="chart-row">
+        <div class="chart-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</div>
+        <div class="chart-bar-track" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        <div class="chart-value">${escapeHtml(valueLabel)}</div>
+      </div>`;
   }).join("");
 }
 
@@ -800,13 +925,13 @@ function exportResultsCsv() {
   const headers = [
     "sample_number", "source_row", "agent", "agent_status", "duration_minutes", "start", "end",
     "venue_name", "venue_id", "venue_config_id", "venue_config", "event_ids", "event_names",
-    "agent_issue_notes", "vfs_url", "qa_decision", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
+    "agent_issue_notes", "vfs_url", "qa_decision", "brightness_rating", "brightness_score", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
   ];
 
   const rows = reviewedTasks.map(({ task, review, sampleNumber }) => [
     sampleNumber, task.rowNumber, task.agent, task.status, task.duration, task.start, task.end,
     task.venueName, task.venueId, task.configId, task.configName, task.eventIds, task.eventNames,
-    task.issueNotes, task.vfsUrl, formatDecision(review.decision), review.notes || "", review.reviewedAt || "",
+    task.issueNotes, task.vfsUrl, formatDecision(review.decision), formatBrightness(review.brightness), parseBrightness(review.brightness), review.notes || "", review.reviewedAt || "",
     state.workbookName, state.seed, state.sampleMode
   ]);
 
@@ -986,6 +1111,23 @@ function formatNumber(value) {
 function formatDuration(value) {
   const parsed = parseFloat(value);
   return Number.isFinite(parsed) ? `${parsed.toFixed(1)} min` : (clean(value) || "-");
+}
+
+function parseBrightness(value) {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(-2, Math.min(2, parsed));
+}
+
+function formatBrightness(value) {
+  return BRIGHTNESS_LABELS[String(parseBrightness(value))] || "Perfect";
+}
+
+function updateBrightnessControl(value) {
+  const brightness = parseBrightness(value);
+  if (els.brightnessSlider) els.brightnessSlider.value = String(brightness);
+  if (els.brightnessValue) els.brightnessValue.textContent = formatBrightness(brightness);
+  if (els.brightnessHint) els.brightnessHint.textContent = BRIGHTNESS_HINTS[String(brightness)] || BRIGHTNESS_HINTS["0"];
 }
 
 function formatDecision(value) {

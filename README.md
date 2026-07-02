@@ -18,21 +18,25 @@ A static GitHub Pages web app for QA sampling VFS workbook tasks.
   2. Sample
   3. Review
   4. Dashboard
+- Lets QA agents record the QA decision, notes, and image brightness feedback.
 - Stores progress in browser local storage.
 - Exports QA results to CSV.
 - Exports the current session to JSON.
 
-## Version 4 updates
+## Version 5 updates
 
-- Reworked the UI into a smoother app-style workflow.
-- Added step navigation so only the active stage is shown.
-- Added a dedicated sample roster page.
-- Added a cleaner single-task review card.
-- Added a review progress bar.
-- Added drag-and-drop file upload.
-- Added toast notifications.
-- Added clearer status pills, cards, and dashboard styling.
-- Kept the v3 workbook parsing fixes, including CSV parsing, Windows-1252 fallback decoding, blank row preservation, and explicit `VENUE_ID` / `VENUE_CONFIG_ID` detection.
+- Added an image brightness slider to each task review.
+- Brightness scale runs from `Too dark` to `Too bright`, with `Perfect` in the middle.
+- Brightness feedback is saved per task and included in CSV/session exports.
+- Added dashboard charts for:
+  - QA decision breakdown.
+  - Error rate by agent.
+  - Brightness feedback distribution.
+  - Average duration by agent.
+- Added a dashboard metric for brightness issues.
+- Agent stats now include brightness issue counts.
+- Reviewed tasks table now includes brightness feedback.
+- Kept the v4 guided workflow and the v3 workbook parsing fixes.
 
 ## GitHub Pages setup
 
