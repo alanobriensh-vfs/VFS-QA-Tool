@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VFS QA Tool</title>
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=9" />
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script defer src="app.js?v=8"></script>
+  <script defer src="app.js?v=9"></script>
 </head>
 <body>
   <div class="page-shell">
@@ -228,6 +228,24 @@
                 <label><input type="radio" name="qaDecision" value="incorrect_skip" /><span>Incorrect skip</span><small>Should not be skipped</small></label>
               </div>
 
+              <div class="issue-category-panel" aria-labelledby="issueCategoryTitle">
+                <div class="issue-category-header">
+                  <div>
+                    <h4 id="issueCategoryTitle">Issue categories</h4>
+                    <p>Choose all that apply. Selecting an issue will mark the task as an error unless it is an incorrect skip.</p>
+                  </div>
+                  <span class="status-pill muted compact-pill">Multi-select</span>
+                </div>
+                <div id="issueCategoryGroup" class="issue-chip-grid" data-count="0">
+                  <label><input type="checkbox" name="issueCategory" value="too_many_cameras" /><span>Too many cameras</span></label>
+                  <label><input type="checkbox" name="issueCategory" value="blocked_cameras" /><span>Blocked cameras</span></label>
+                  <label><input type="checkbox" name="issueCategory" value="incorrect_floor" /><span>Incorrect floor</span></label>
+                  <label><input type="checkbox" name="issueCategory" value="wrong_hdri" /><span>Wrong HDRI used</span></label>
+                  <label><input type="checkbox" name="issueCategory" value="bad_lighting" /><span>Bad lighting</span></label>
+                  <label><input type="checkbox" name="issueCategory" value="missing_textures" /><span>Missing textures</span></label>
+                </div>
+              </div>
+
               <div class="brightness-control" aria-labelledby="brightnessTitle">
                 <div class="brightness-header">
                   <div>
@@ -298,6 +316,10 @@
               <strong id="avgDurationMetric">-</strong>
             </article>
             <article class="metric-card big">
+              <span>Issue tags</span>
+              <strong id="issueTagMetric">0</strong>
+            </article>
+            <article class="metric-card big">
               <span>Brightness issues</span>
               <strong id="brightnessIssueMetric">0</strong>
             </article>
@@ -312,6 +334,11 @@
               <span>Quality signal</span>
               <strong id="qualitySignalInsight">No reviews yet</strong>
               <small>Overall error trend from reviewed tasks.</small>
+            </article>
+            <article class="insight-card">
+              <span>Issue spotlight</span>
+              <strong id="issueSignalInsight">No issue tags yet</strong>
+              <small>Most common structured QA issue.</small>
             </article>
             <article class="insight-card">
               <span>Lighting signal</span>
@@ -333,6 +360,13 @@
                 <span>Result split</span>
               </div>
               <div id="decisionChart" class="bar-chart empty-chart">No QA results yet.</div>
+            </section>
+            <section class="chart-card">
+              <div class="chart-card-header">
+                <h4>Issue categories</h4>
+                <span>Tagged QA failures</span>
+              </div>
+              <div id="issueCategoryChart" class="bar-chart empty-chart">No QA results yet.</div>
             </section>
             <section class="chart-card">
               <div class="chart-card-header">
@@ -376,13 +410,14 @@
                   <th>Error %</th>
                   <th>Skipped checked</th>
                   <th>Incorrect skips</th>
+                  <th>Issue tags</th>
                   <th>Brightness issues</th>
                   <th>Avg lighting</th>
                   <th>Avg duration</th>
                 </tr>
               </thead>
               <tbody id="agentStatsTable">
-                <tr><td colspan="10" class="table-empty">No QA results yet.</td></tr>
+                <tr><td colspan="11" class="table-empty">No QA results yet.</td></tr>
               </tbody>
             </table>
           </div>
@@ -399,12 +434,13 @@
                   <th>Config</th>
                   <th>Duration</th>
                   <th>QA decision</th>
+                  <th>Issue categories</th>
                   <th>Lighting score</th>
                   <th>QA notes</th>
                 </tr>
               </thead>
               <tbody id="reviewedTasksTable">
-                <tr><td colspan="9" class="table-empty">No reviewed tasks yet.</td></tr>
+                <tr><td colspan="10" class="table-empty">No reviewed tasks yet.</td></tr>
               </tbody>
             </table>
           </div>

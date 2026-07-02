@@ -47,3 +47,12 @@ Then go to the repository's **Settings > Pages** and publish from the `main` bra
 ## Privacy note
 
 This app runs fully in the browser. Uploaded workbooks and QA notes are not sent to a server by this app.
+
+
+## v9 update
+
+- Added structured QA issue categories: Too many cameras, Blocked cameras, Incorrect floor, Wrong HDRI used, Bad lighting, and Missing textures.
+- Issue categories work as multi-select tags below the main QA decision.
+- Selecting an issue tag automatically treats the task as an error unless the task is marked as an incorrect skip.
+- Dashboard now includes issue tag counts, an issue spotlight insight, an issue category chart, issue counts by agent, and issue categories in the reviewed task table.
+- CSV export now includes `issue_categories` and `issue_count`.

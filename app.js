@@ -1,4 +1,5 @@
-const STORAGE_KEY = "vfsQaToolSessionV6";
+const STORAGE_KEY = "vfsQaToolSessionV9";
+const LEGACY_STORAGE_KEYS = ["vfsQaToolSessionV6", "vfsQaToolSessionV1"];
 
 const VIEW_ORDER = ["uploadView", "sampleView", "reviewView", "dashboardView"];
 
@@ -49,6 +50,15 @@ const BRIGHTNESS_BUCKETS = [
   { min: 80, max: 100, label: "Too bright" },
 ];
 
+const ISSUE_CATEGORIES = [
+  { value: "too_many_cameras", label: "Too many cameras", shortLabel: "Too many cams" },
+  { value: "blocked_cameras", label: "Blocked cameras", shortLabel: "Blocked cams" },
+  { value: "incorrect_floor", label: "Incorrect floor", shortLabel: "Wrong floor" },
+  { value: "wrong_hdri", label: "Wrong HDRI used", shortLabel: "Wrong HDRI" },
+  { value: "bad_lighting", label: "Bad lighting", shortLabel: "Bad lighting" },
+  { value: "missing_textures", label: "Missing textures", shortLabel: "Missing textures" },
+];
+
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   attachEvents();
@@ -62,9 +72,9 @@ function cacheElements() {
     "doneRowsMetric", "skippedRowsMetric", "agentBreakdown", "reviewProgress", "reviewProgressBar", "reviewEmpty", "taskCard",
     "taskCounter", "taskTitle", "vfsLink", "taskAgent", "taskStatus", "taskDuration", "taskStart", "taskEnd",
     "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "brightnessSlider",
-    "brightnessValue", "brightnessHint", "prevTaskBtn", "saveReviewBtn", "nextTaskBtn", "reviewedMetric",
-    "errorsMetric", "errorRateMetric", "avgDurationMetric", "brightnessIssueMetric", "avgBrightnessMetric", "decisionChart",
-    "agentErrorChart", "brightnessChart", "lightingScoreChart", "durationChart", "qualitySignalInsight", "lightingSignalInsight", "trainingWatchInsight", "agentStatsTable", "reviewedTasksTable",
+    "brightnessValue", "brightnessHint", "issueCategoryGroup", "prevTaskBtn", "saveReviewBtn", "nextTaskBtn", "reviewedMetric",
+    "errorsMetric", "errorRateMetric", "avgDurationMetric", "issueTagMetric", "brightnessIssueMetric", "avgBrightnessMetric", "decisionChart",
+    "issueCategoryChart", "agentErrorChart", "brightnessChart", "lightingScoreChart", "durationChart", "qualitySignalInsight", "issueSignalInsight", "lightingSignalInsight", "trainingWatchInsight", "agentStatsTable", "reviewedTasksTable",
     "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
     "goSampleBtn", "startReviewBtn", "goDashboardBtn", "backUploadBtn", "backSampleBtn", "backReviewBtn", "restartBtn",
     "sampleWorkbookName", "sampleCandidateCount", "sampleSelectedCount", "sampleModeLabel", "sampleRosterTable", "toast"
@@ -117,6 +127,23 @@ function attachEvents() {
 
   document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
     radio.addEventListener("change", () => {
+      if (radio.checked && (radio.value === "pass" || radio.value === "correct_skip")) {
+        clearIssueCategorySelections();
+      }
+      saveCurrentReview();
+      updateReviewCard();
+    });
+  });
+
+  document.querySelectorAll("input[name='issueCategory']").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const selectedIssues = getSelectedIssueCategories();
+      const selectedDecision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
+      if (selectedIssues.length && (!selectedDecision || selectedDecision === "pass" || selectedDecision === "correct_skip")) {
+        const errorRadio = document.querySelector("input[name='qaDecision'][value='error']");
+        if (errorRadio) errorRadio.checked = true;
+      }
+      updateIssueCategoryControls(selectedIssues);
       saveCurrentReview();
       updateReviewCard();
     });
@@ -665,7 +692,7 @@ function updateReviewCard() {
   if (state.currentIndex >= state.sample.length) state.currentIndex = state.sample.length - 1;
 
   const task = state.sample[state.currentIndex];
-  const review = state.reviews[task.key] || { decision: "", notes: "", brightness: BRIGHTNESS_DEFAULT };
+  const review = state.reviews[task.key] || { decision: "", notes: "", brightness: BRIGHTNESS_DEFAULT, issueCategories: [] };
   const reviewedCount = getReviewedTasks().length;
   const progressPct = Math.round((reviewedCount / state.sample.length) * 100);
 
@@ -686,6 +713,7 @@ function updateReviewCard() {
   els.taskIssueNotes.textContent = task.issueNotes || "No issue notes supplied.";
   els.qaNotesInput.value = review.notes || "";
   updateBrightnessControl(parseBrightness(review.brightness));
+  updateIssueCategoryControls(getIssueCategories(review));
 
   document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
     radio.checked = radio.value === review.decision;
@@ -701,18 +729,28 @@ function saveCurrentReview() {
 
   const task = state.sample[state.currentIndex];
   const existing = state.reviews[task.key] || {};
-  const decision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
+  let decision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
   const notes = els.qaNotesInput.value.trim();
   const brightness = parseBrightness(els.brightnessSlider?.value ?? existing.brightness ?? BRIGHTNESS_DEFAULT);
+  const issueCategories = getSelectedIssueCategories();
 
-  if (!decision && !notes && brightness === BRIGHTNESS_DEFAULT) {
+  if (issueCategories.length && (!decision || decision === "pass" || decision === "correct_skip")) {
+    decision = "error";
+    const errorRadio = document.querySelector("input[name='qaDecision'][value='error']");
+    if (errorRadio) errorRadio.checked = true;
+  }
+
+  if (!decision && !notes && brightness === BRIGHTNESS_DEFAULT && !issueCategories.length) {
     delete state.reviews[task.key];
   } else {
+    const previousIssues = getIssueCategories(existing).join("|");
+    const currentIssues = issueCategories.join("|");
     state.reviews[task.key] = {
       decision,
       notes,
       brightness,
-      reviewedAt: existing.reviewedAt && existing.decision === decision && existing.notes === notes && parseBrightness(existing.brightness) === brightness
+      issueCategories,
+      reviewedAt: existing.reviewedAt && existing.decision === decision && existing.notes === notes && parseBrightness(existing.brightness) === brightness && previousIssues === currentIssues
         ? existing.reviewedAt
         : new Date().toISOString(),
     };
@@ -734,17 +772,19 @@ function moveTask(direction) {
 
 function updateDashboard() {
   const reviewedTasks = getReviewedTasks();
-  const errors = reviewedTasks.filter((item) => isErrorDecision(item.review.decision)).length;
+  const errors = reviewedTasks.filter((item) => isErrorReview(item.review)).length;
   const durations = reviewedTasks.map((item) => parseFloat(item.task.duration)).filter(Number.isFinite);
   const avgDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : null;
   const brightnessScores = reviewedTasks.map((item) => parseBrightness(item.review.brightness)).filter(Number.isFinite);
   const avgBrightness = brightnessScores.length ? brightnessScores.reduce((sum, value) => sum + value, 0) / brightnessScores.length : null;
   const brightnessIssues = reviewedTasks.filter((item) => !isBrightnessPerfect(item.review.brightness)).length;
+  const issueTags = reviewedTasks.reduce((sum, item) => sum + getIssueCategories(item.review).length, 0);
 
   els.reviewedMetric.textContent = formatNumber(reviewedTasks.length);
   els.errorsMetric.textContent = formatNumber(errors);
   els.errorRateMetric.textContent = reviewedTasks.length ? `${Math.round((errors / reviewedTasks.length) * 100)}%` : "0%";
   els.avgDurationMetric.textContent = avgDuration === null ? "-" : `${avgDuration.toFixed(1)} min`;
+  if (els.issueTagMetric) els.issueTagMetric.textContent = formatNumber(issueTags);
   if (els.brightnessIssueMetric) els.brightnessIssueMetric.textContent = formatNumber(brightnessIssues);
   if (els.avgBrightnessMetric) els.avgBrightnessMetric.textContent = avgBrightness === null ? "-" : formatBrightness(avgBrightness);
   els.exportCsvBtn.disabled = !reviewedTasks.length;
@@ -752,31 +792,32 @@ function updateDashboard() {
 
   renderAgentStats(reviewedTasks);
   renderReviewedTasks(reviewedTasks);
-  renderDashboardInsights(reviewedTasks, { errors, avgDuration, avgBrightness, brightnessIssues });
+  renderDashboardInsights(reviewedTasks, { errors, avgDuration, avgBrightness, brightnessIssues, issueTags });
   renderDashboardCharts(reviewedTasks);
 }
 
 function getReviewedTasks() {
   return state.sample
     .map((task, index) => ({ task, review: state.reviews[task.key], sampleNumber: index + 1 }))
-    .filter((item) => item.review?.decision || item.review?.notes || parseBrightness(item.review?.brightness ?? BRIGHTNESS_DEFAULT) !== BRIGHTNESS_DEFAULT);
+    .filter((item) => item.review?.decision || item.review?.notes || getIssueCategories(item.review).length || parseBrightness(item.review?.brightness ?? BRIGHTNESS_DEFAULT) !== BRIGHTNESS_DEFAULT);
 }
 
 function renderAgentStats(reviewedTasks) {
   if (!reviewedTasks.length) {
-    els.agentStatsTable.innerHTML = `<tr><td colspan="10" class="table-empty">No QA results yet.</td></tr>`;
+    els.agentStatsTable.innerHTML = `<tr><td colspan="11" class="table-empty">No QA results yet.</td></tr>`;
     return;
   }
 
   const byAgent = {};
   reviewedTasks.forEach(({ task, review }) => {
-    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, brightnessIssues: 0, durations: [], brightnessScores: [] };
+    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, issueTags: 0, brightnessIssues: 0, durations: [], brightnessScores: [] };
     const bucket = byAgent[task.agent];
     bucket.reviewed += 1;
     if (review.decision === "pass" || review.decision === "correct_skip") bucket.pass += 1;
-    if (isErrorDecision(review.decision)) bucket.errors += 1;
+    if (isErrorReview(review)) bucket.errors += 1;
     if (task.status.toLowerCase() === "skipped") bucket.skipped += 1;
     if (review.decision === "incorrect_skip") bucket.incorrectSkips += 1;
+    bucket.issueTags += getIssueCategories(review).length;
     const brightnessScore = parseBrightness(review.brightness);
     if (!isBrightnessPerfect(brightnessScore)) bucket.brightnessIssues += 1;
     bucket.brightnessScores.push(brightnessScore);
@@ -801,6 +842,7 @@ function renderAgentStats(reviewedTasks) {
         <td>${errorPct}</td>
         <td>${bucket.skipped}</td>
         <td>${bucket.incorrectSkips}</td>
+        <td>${bucket.issueTags}</td>
         <td>${bucket.brightnessIssues}</td>
         <td>${avgBrightness}</td>
         <td>${avgDuration}</td>
@@ -810,7 +852,7 @@ function renderAgentStats(reviewedTasks) {
 
 function renderReviewedTasks(reviewedTasks) {
   if (!reviewedTasks.length) {
-    els.reviewedTasksTable.innerHTML = `<tr><td colspan="9" class="table-empty">No reviewed tasks yet.</td></tr>`;
+    els.reviewedTasksTable.innerHTML = `<tr><td colspan="10" class="table-empty">No reviewed tasks yet.</td></tr>`;
     return;
   }
 
@@ -826,7 +868,8 @@ function renderReviewedTasks(reviewedTasks) {
         <td>${escapeHtml(task.venueName || "-")}</td>
         <td>${configCell}</td>
         <td>${escapeHtml(formatDuration(task.duration))}</td>
-        <td><span class="mini-pill ${isErrorDecision(review.decision) ? "error" : "done"}">${escapeHtml(formatDecision(review.decision))}</span></td>
+        <td><span class="mini-pill ${isErrorReview(review) ? "error" : "done"}">${escapeHtml(formatDecision(review.decision))}</span></td>
+        <td>${formatIssueCategoryChips(review)}</td>
         <td>${escapeHtml(formatBrightness(review.brightness))}</td>
         <td>${escapeHtml(review.notes || "")}</td>
       </tr>`;
@@ -839,12 +882,21 @@ function renderDashboardInsights(reviewedTasks, summary) {
   if (!reviewedTasks.length) {
     els.qualitySignalInsight.textContent = "No reviews yet";
     els.lightingSignalInsight.textContent = "No lighting scores yet";
+    if (els.issueSignalInsight) els.issueSignalInsight.textContent = "No issue tags yet";
     els.trainingWatchInsight.textContent = "No agents flagged";
     return;
   }
 
   const errorRate = Math.round((summary.errors / reviewedTasks.length) * 100);
   els.qualitySignalInsight.textContent = `${errorRate}% error rate across ${reviewedTasks.length} reviewed`;
+
+  if (els.issueSignalInsight) {
+    const issueCounts = countIssueCategories(reviewedTasks);
+    const topIssue = Object.entries(issueCounts).sort((a, b) => b[1] - a[1])[0];
+    els.issueSignalInsight.textContent = topIssue
+      ? `${getIssueCategoryLabel(topIssue[0])}: ${topIssue[1]} tag${topIssue[1] === 1 ? "" : "s"}`
+      : "No issue tags yet";
+  }
 
   if (summary.avgBrightness === null) {
     els.lightingSignalInsight.textContent = "No lighting scores yet";
@@ -857,7 +909,7 @@ function renderDashboardInsights(reviewedTasks, summary) {
   reviewedTasks.forEach(({ task, review }) => {
     byAgent[task.agent] ||= { reviewed: 0, errors: 0, brightnessScores: [], durations: [] };
     byAgent[task.agent].reviewed += 1;
-    if (isErrorDecision(review.decision)) byAgent[task.agent].errors += 1;
+    if (isErrorReview(review)) byAgent[task.agent].errors += 1;
     byAgent[task.agent].brightnessScores.push(parseBrightness(review.brightness));
     const duration = parseFloat(task.duration);
     if (Number.isFinite(duration)) byAgent[task.agent].durations.push(duration);
@@ -883,6 +935,7 @@ function renderDashboardInsights(reviewedTasks, summary) {
 
 function renderDashboardCharts(reviewedTasks) {
   renderDecisionChart(reviewedTasks);
+  renderIssueCategoryChart(reviewedTasks);
   renderAgentErrorChart(reviewedTasks);
   renderBrightnessChart(reviewedTasks);
   renderLightingScoreChart(reviewedTasks);
@@ -903,12 +956,22 @@ function renderDecisionChart(reviewedTasks) {
   renderDonutChart(els.decisionChart, items, { total: reviewedTasks.length, centerLabel: "QA", suffix: "tasks" });
 }
 
+function renderIssueCategoryChart(reviewedTasks) {
+  const counts = countIssueCategories(reviewedTasks);
+  const items = ISSUE_CATEGORIES.map((category) => ({
+    label: category.label,
+    value: counts[category.value] || 0,
+    detail: `${counts[category.value] || 0} tag${(counts[category.value] || 0) === 1 ? "" : "s"}`,
+  }));
+  renderBarChart(els.issueCategoryChart, items, { total: reviewedTasks.length ? 1 : 0, suffix: "tags", tone: "issue" });
+}
+
 function renderAgentErrorChart(reviewedTasks) {
   const byAgent = {};
   reviewedTasks.forEach(({ task, review }) => {
     byAgent[task.agent] ||= { reviewed: 0, errors: 0 };
     byAgent[task.agent].reviewed += 1;
-    if (isErrorDecision(review.decision)) byAgent[task.agent].errors += 1;
+    if (isErrorReview(review)) byAgent[task.agent].errors += 1;
   });
 
   const items = Object.entries(byAgent).sort(([a], [b]) => a.localeCompare(b)).map(([agent, bucket]) => ({
@@ -1069,13 +1132,13 @@ function exportResultsCsv() {
   const headers = [
     "sample_number", "source_row", "agent", "agent_status", "duration_minutes", "start", "end",
     "venue_name", "venue_id", "venue_config_id", "venue_config", "event_ids", "event_names",
-    "agent_issue_notes", "vfs_url", "qa_decision", "brightness_score", "brightness_rating", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
+    "agent_issue_notes", "vfs_url", "qa_decision", "issue_categories", "issue_count", "brightness_score", "brightness_rating", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
   ];
 
   const rows = reviewedTasks.map(({ task, review, sampleNumber }) => [
     sampleNumber, task.rowNumber, task.agent, task.status, task.duration, task.start, task.end,
     task.venueName, task.venueId, task.configId, task.configName, task.eventIds, task.eventNames,
-    task.issueNotes, task.vfsUrl, formatDecision(review.decision), parseBrightness(review.brightness), getBrightnessLabel(review.brightness), review.notes || "", review.reviewedAt || "",
+    task.issueNotes, task.vfsUrl, formatDecision(review.decision), getIssueCategories(review).map(getIssueCategoryLabel).join("; "), getIssueCategories(review).length, parseBrightness(review.brightness), getBrightnessLabel(review.brightness), review.notes || "", review.reviewedAt || "",
     state.workbookName, state.seed, state.sampleMode
   ]);
 
@@ -1121,7 +1184,7 @@ function saveSession() {
 }
 
 function loadSavedSession() {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(STORAGE_KEY) || LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
   if (!raw) {
     showWarnings(["No saved session was found in this browser."]);
     return;
@@ -1285,6 +1348,71 @@ function updateBrightnessControl(value) {
   if (els.brightnessSlider) els.brightnessSlider.value = String(brightness);
   if (els.brightnessValue) els.brightnessValue.textContent = formatBrightness(brightness);
   if (els.brightnessHint) els.brightnessHint.textContent = `0 = too dark, 50 = ideal, 100 = too bright. Current guide: ${label}.`;
+}
+
+function getSelectedIssueCategories() {
+  return Array.from(document.querySelectorAll("input[name='issueCategory']:checked"))
+    .map((checkbox) => checkbox.value)
+    .filter((value) => ISSUE_CATEGORIES.some((category) => category.value === value));
+}
+
+function clearIssueCategorySelections() {
+  document.querySelectorAll("input[name='issueCategory']").forEach((checkbox) => {
+    checkbox.checked = false;
+    checkbox.closest("label")?.classList.remove("is-selected");
+  });
+}
+
+function updateIssueCategoryControls(selected = []) {
+  const selectedSet = new Set(selected);
+  document.querySelectorAll("input[name='issueCategory']").forEach((checkbox) => {
+    checkbox.checked = selectedSet.has(checkbox.value);
+    checkbox.closest("label")?.classList.toggle("is-selected", checkbox.checked);
+  });
+  if (els.issueCategoryGroup) {
+    els.issueCategoryGroup.dataset.count = String(selectedSet.size);
+  }
+}
+
+function getIssueCategories(review) {
+  if (!review) return [];
+  if (Array.isArray(review.issueCategories)) {
+    return review.issueCategories.filter((value) => ISSUE_CATEGORIES.some((category) => category.value === value));
+  }
+  if (typeof review.issueCategories === "string") {
+    return review.issueCategories.split(/[;,|]/).map((value) => normalizeIssueCategory(value)).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeIssueCategory(value) {
+  const normalized = normalizeKey(value);
+  const match = ISSUE_CATEGORIES.find((category) => normalizeKey(category.value) === normalized || normalizeKey(category.label) === normalized || normalizeKey(category.shortLabel) === normalized);
+  return match?.value || "";
+}
+
+function getIssueCategoryLabel(value) {
+  const category = ISSUE_CATEGORIES.find((item) => item.value === value);
+  return category?.label || clean(value) || "Unknown issue";
+}
+
+function formatIssueCategoryChips(review) {
+  const categories = getIssueCategories(review);
+  if (!categories.length) return `<span class="muted-text">-</span>`;
+  return `<div class="mini-chip-list">${categories.map((value) => `<span class="mini-pill issue">${escapeHtml(getIssueCategoryLabel(value))}</span>`).join("")}</div>`;
+}
+
+function countIssueCategories(reviewedTasks) {
+  return reviewedTasks.reduce((acc, item) => {
+    getIssueCategories(item.review).forEach((value) => {
+      acc[value] = (acc[value] || 0) + 1;
+    });
+    return acc;
+  }, {});
+}
+
+function isErrorReview(review) {
+  return isErrorDecision(review?.decision) || getIssueCategories(review).length > 0;
 }
 
 function formatDecision(value) {
