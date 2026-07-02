@@ -4,235 +4,337 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VFS QA Tool</title>
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script defer src="app.js?v=3"></script>
+  <script defer src="app.js?v=4"></script>
 </head>
 <body>
-  <header class="app-header">
-    <div>
-      <p class="eyebrow">VFS QA Tool</p>
-      <h1>Balanced QA sampling for VFS tasks</h1>
-      <p class="intro">Upload a workbook or CSV, generate a balanced QA sample across agents, review each VFS task, and export your QA results.</p>
-    </div>
-    <div class="header-actions">
-      <button id="loadSavedBtn" class="ghost-btn" type="button">Load saved session</button>
-      <button id="clearSavedBtn" class="danger-ghost-btn" type="button">Clear saved session</button>
-    </div>
-  </header>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">VFS QA Tool</p>
+        <h1>QA sampling without the spreadsheet chaos.</h1>
+        <p class="intro">Upload a workbook, pull a fair sample across agents, check each VFS page, and export a clean QA report.</p>
+      </div>
+      <div class="session-actions">
+        <button id="loadSavedBtn" class="ghost-btn" type="button">Load saved session</button>
+        <button id="clearSavedBtn" class="danger-ghost-btn" type="button">Clear saved</button>
+      </div>
+    </header>
 
-  <main class="layout">
-    <section class="panel upload-panel" aria-labelledby="uploadTitle">
-      <div class="panel-header">
-        <div>
-          <p class="step-label">Step 1</p>
-          <h2 id="uploadTitle">Upload workbook</h2>
+    <nav class="stepper" aria-label="Workflow steps">
+      <button class="step-button is-active" type="button" data-view="uploadView" id="uploadStepBtn">
+        <span>1</span>
+        <strong>Upload</strong>
+        <small>Workbook setup</small>
+      </button>
+      <button class="step-button" type="button" data-view="sampleView" id="sampleStepBtn" disabled>
+        <span>2</span>
+        <strong>Sample</strong>
+        <small>Pick QA tasks</small>
+      </button>
+      <button class="step-button" type="button" data-view="reviewView" id="reviewStepBtn" disabled>
+        <span>3</span>
+        <strong>Review</strong>
+        <small>Check VFS pages</small>
+      </button>
+      <button class="step-button" type="button" data-view="dashboardView" id="dashboardStepBtn" disabled>
+        <span>4</span>
+        <strong>Dashboard</strong>
+        <small>Stats + export</small>
+      </button>
+    </nav>
+
+    <main>
+      <section id="uploadView" class="view is-active" aria-labelledby="uploadTitle">
+        <div class="view-grid two-column">
+          <article class="panel primary-panel">
+            <div class="panel-header">
+              <div>
+                <p class="step-label">Step 1</p>
+                <h2 id="uploadTitle">Upload workbook</h2>
+              </div>
+              <span id="fileStatus" class="status-pill muted">No file loaded</span>
+            </div>
+
+            <label id="dropZone" class="drop-zone" for="fileInput">
+              <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,.xlsm" />
+              <span class="drop-icon">+</span>
+              <strong>Choose or drop a CSV / Excel file</strong>
+              <small>Designed for VFS workbooks with row 3 as the task header row.</small>
+            </label>
+
+            <div class="settings-card">
+              <label>
+                Header row
+                <input id="headerRowInput" type="number" min="1" value="3" />
+              </label>
+              <label>
+                Sample size
+                <input id="sampleSizeInput" type="number" min="1" value="20" />
+              </label>
+              <label>
+                Sampling mode
+                <select id="sampleModeInput">
+                  <option value="balanced">Balanced across agents</option>
+                  <option value="proportional">Proportional to workload</option>
+                  <option value="random">Fully random</option>
+                </select>
+              </label>
+              <label>
+                Random seed
+                <input id="seedInput" type="text" placeholder="Auto-generated" />
+              </label>
+            </div>
+
+            <div id="parseWarnings" class="warning-box hidden"></div>
+
+            <div class="button-row sticky-actions">
+              <button id="goSampleBtn" class="primary-btn" type="button" disabled>Continue to sampling</button>
+            </div>
+          </article>
+
+          <aside class="panel compact-panel">
+            <p class="step-label">Workbook preview</p>
+            <h2>Task pool</h2>
+            <div class="metric-grid stacked">
+              <article class="metric-card">
+                <span>Total rows</span>
+                <strong id="totalRowsMetric">-</strong>
+              </article>
+              <article class="metric-card">
+                <span>QA candidates</span>
+                <strong id="candidateRowsMetric">-</strong>
+              </article>
+              <article class="metric-card">
+                <span>Done</span>
+                <strong id="doneRowsMetric">-</strong>
+              </article>
+              <article class="metric-card">
+                <span>Skipped</span>
+                <strong id="skippedRowsMetric">-</strong>
+              </article>
+            </div>
+            <div id="agentBreakdown" class="agent-breakdown empty-state">Upload a file to see agent counts.</div>
+          </aside>
         </div>
-        <span id="fileStatus" class="status-pill muted">No file loaded</span>
-      </div>
+      </section>
 
-      <label class="drop-zone" for="fileInput">
-        <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,.xlsm" />
-        <span class="drop-icon">+</span>
-        <strong>Choose a CSV or Excel file</strong>
-        <small>Default setup uses row 3 as headers and row 4 onward as task data.</small>
-      </label>
-
-      <div class="settings-grid">
-        <label>
-          Header row
-          <input id="headerRowInput" type="number" min="1" value="3" />
-        </label>
-        <label>
-          Sample size
-          <input id="sampleSizeInput" type="number" min="1" value="20" />
-        </label>
-        <label>
-          Sampling mode
-          <select id="sampleModeInput">
-            <option value="balanced">Balanced across agents</option>
-            <option value="proportional">Proportional to workload</option>
-            <option value="random">Fully random</option>
-          </select>
-        </label>
-        <label>
-          Random seed
-          <input id="seedInput" type="text" placeholder="Auto-generated" />
-        </label>
-      </div>
-
-      <div class="button-row">
-        <button id="generateSampleBtn" class="primary-btn" type="button" disabled>Generate QA sample</button>
-        <button id="reshuffleBtn" class="secondary-btn" type="button" disabled>New random sample</button>
-      </div>
-
-      <div id="parseWarnings" class="warning-box hidden"></div>
-    </section>
-
-    <section class="panel stats-panel" aria-labelledby="statsTitle">
-      <div class="panel-header">
-        <div>
-          <p class="step-label">Overview</p>
-          <h2 id="statsTitle">Loaded task pool</h2>
-        </div>
-      </div>
-      <div class="metric-grid">
-        <article class="metric-card">
-          <span>Total rows</span>
-          <strong id="totalRowsMetric">-</strong>
-        </article>
-        <article class="metric-card">
-          <span>QA candidates</span>
-          <strong id="candidateRowsMetric">-</strong>
-        </article>
-        <article class="metric-card">
-          <span>Done</span>
-          <strong id="doneRowsMetric">-</strong>
-        </article>
-        <article class="metric-card">
-          <span>Skipped</span>
-          <strong id="skippedRowsMetric">-</strong>
-        </article>
-      </div>
-      <div id="agentBreakdown" class="agent-breakdown empty-state">Upload a file to see agent counts.</div>
-    </section>
-
-    <section class="panel review-panel wide" aria-labelledby="reviewTitle">
-      <div class="panel-header">
-        <div>
-          <p class="step-label">Step 2</p>
-          <h2 id="reviewTitle">QA review</h2>
-        </div>
-        <span id="reviewProgress" class="status-pill muted">No sample</span>
-      </div>
-
-      <div id="reviewEmpty" class="empty-state">
-        Generate a sample to start reviewing tasks.
-      </div>
-
-      <article id="taskCard" class="task-card hidden">
-        <div class="task-card-top">
-          <div>
-            <p id="taskCounter" class="eyebrow">Task 1 of 20</p>
-            <h3 id="taskTitle">Venue / Config</h3>
+      <section id="sampleView" class="view" aria-labelledby="sampleTitle">
+        <article class="panel">
+          <div class="panel-header responsive-header">
+            <div>
+              <p class="step-label">Step 2</p>
+              <h2 id="sampleTitle">Generate QA sample</h2>
+              <p class="panel-copy">Choose the sample size and sampling style, then generate the list of tasks to review.</p>
+            </div>
+            <div class="button-row">
+              <button id="generateSampleBtn" class="primary-btn" type="button" disabled>Generate sample</button>
+              <button id="reshuffleBtn" class="secondary-btn" type="button" disabled>New random sample</button>
+            </div>
           </div>
-          <a id="vfsLink" class="primary-link" href="#" target="_blank" rel="noopener noreferrer">Open VFS page</a>
-        </div>
 
-        <dl class="task-details">
-          <div><dt>Agent</dt><dd id="taskAgent">-</dd></div>
-          <div><dt>Status</dt><dd id="taskStatus">-</dd></div>
-          <div><dt>Duration</dt><dd id="taskDuration">-</dd></div>
-          <div><dt>Started</dt><dd id="taskStart">-</dd></div>
-          <div><dt>Ended</dt><dd id="taskEnd">-</dd></div>
-          <div><dt>Venue ID</dt><dd id="taskVenueId">-</dd></div>
-          <div><dt>Config ID</dt><dd id="taskConfigId">-</dd></div>
-          <div><dt>Config name</dt><dd id="taskConfigName">-</dd></div>
-        </dl>
-
-        <section class="notes-panel">
-          <h4>Agent issue notes</h4>
-          <p id="taskIssueNotes">No issue notes supplied.</p>
-        </section>
-
-        <section class="qa-form" aria-labelledby="qaDecisionTitle">
-          <h4 id="qaDecisionTitle">QA decision</h4>
-          <div class="radio-grid">
-            <label><input type="radio" name="qaDecision" value="pass" /> Pass</label>
-            <label><input type="radio" name="qaDecision" value="error" /> Error</label>
-            <label><input type="radio" name="qaDecision" value="correct_skip" /> Correctly skipped</label>
-            <label><input type="radio" name="qaDecision" value="incorrect_skip" /> Incorrectly skipped</label>
+          <div class="sample-summary">
+            <div>
+              <span>Workbook</span>
+              <strong id="sampleWorkbookName">-</strong>
+            </div>
+            <div>
+              <span>Candidate tasks</span>
+              <strong id="sampleCandidateCount">0</strong>
+            </div>
+            <div>
+              <span>Selected sample</span>
+              <strong id="sampleSelectedCount">0</strong>
+            </div>
+            <div>
+              <span>Mode</span>
+              <strong id="sampleModeLabel">Balanced</strong>
+            </div>
           </div>
-          <label class="full-width-label">
-            QA notes / error reason
-            <textarea id="qaNotesInput" rows="4" placeholder="Write what was wrong, training notes, or context for the QA result."></textarea>
-          </label>
-        </section>
 
-        <div class="review-actions">
-          <button id="prevTaskBtn" class="secondary-btn" type="button">Previous</button>
-          <button id="saveReviewBtn" class="primary-btn" type="button">Save QA result</button>
-          <button id="nextTaskBtn" class="secondary-btn" type="button">Next</button>
-        </div>
-      </article>
-    </section>
+          <h3 class="subheading">Sample roster</h3>
+          <div class="table-wrap soft-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Agent</th>
+                  <th>Status</th>
+                  <th>Venue</th>
+                  <th>Config</th>
+                  <th>Duration</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="sampleRosterTable">
+                <tr><td colspan="7" class="table-empty">Generate a sample to preview the tasks here.</td></tr>
+              </tbody>
+            </table>
+          </div>
 
-    <section class="panel dashboard-panel wide" aria-labelledby="dashboardTitle">
-      <div class="panel-header">
-        <div>
-          <p class="step-label">Step 3</p>
-          <h2 id="dashboardTitle">QA dashboard</h2>
-        </div>
-        <div class="button-row compact">
-          <button id="exportCsvBtn" class="secondary-btn" type="button" disabled>Export QA CSV</button>
-          <button id="exportJsonBtn" class="secondary-btn" type="button" disabled>Export session JSON</button>
-        </div>
-      </div>
-
-      <div class="metric-grid dashboard-metrics">
-        <article class="metric-card">
-          <span>QA'd</span>
-          <strong id="reviewedMetric">0</strong>
+          <div class="button-row sticky-actions split-actions">
+            <button id="backUploadBtn" class="secondary-btn" type="button">Back to upload</button>
+            <button id="startReviewBtn" class="primary-btn" type="button" disabled>Start QA review</button>
+          </div>
         </article>
-        <article class="metric-card">
-          <span>Errors</span>
-          <strong id="errorsMetric">0</strong>
-        </article>
-        <article class="metric-card">
-          <span>Error rate</span>
-          <strong id="errorRateMetric">0%</strong>
-        </article>
-        <article class="metric-card">
-          <span>Avg duration</span>
-          <strong id="avgDurationMetric">-</strong>
-        </article>
-      </div>
+      </section>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Agent</th>
-              <th>QA'd</th>
-              <th>Pass</th>
-              <th>Errors</th>
-              <th>Error %</th>
-              <th>Skipped checked</th>
-              <th>Incorrect skips</th>
-              <th>Avg duration</th>
-            </tr>
-          </thead>
-          <tbody id="agentStatsTable">
-            <tr><td colspan="8" class="table-empty">No QA results yet.</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <section id="reviewView" class="view" aria-labelledby="reviewTitle">
+        <article class="panel review-panel">
+          <div class="review-topbar">
+            <div>
+              <p class="step-label">Step 3</p>
+              <h2 id="reviewTitle">QA review</h2>
+            </div>
+            <span id="reviewProgress" class="status-pill muted">No sample</span>
+          </div>
 
-      <h3 class="subheading">Reviewed tasks</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Agent</th>
-              <th>Status</th>
-              <th>Venue</th>
-              <th>Config</th>
-              <th>Duration</th>
-              <th>QA decision</th>
-              <th>QA notes</th>
-            </tr>
-          </thead>
-          <tbody id="reviewedTasksTable">
-            <tr><td colspan="8" class="table-empty">No reviewed tasks yet.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </main>
+          <div class="progress-track" aria-hidden="true"><span id="reviewProgressBar"></span></div>
 
-  <footer class="app-footer">
-    <p>Runs fully in your browser. Uploaded files and QA notes are not sent to a server.</p>
-  </footer>
+          <div id="reviewEmpty" class="empty-state large-empty">Generate a sample to start reviewing tasks.</div>
+
+          <article id="taskCard" class="task-card hidden">
+            <div class="task-card-top">
+              <div>
+                <p id="taskCounter" class="eyebrow">Task 1 of 20</p>
+                <h3 id="taskTitle">Venue / Config</h3>
+              </div>
+              <a id="vfsLink" class="primary-link" href="#" target="_blank" rel="noopener noreferrer">Open VFS page</a>
+            </div>
+
+            <dl class="task-details">
+              <div><dt>Agent</dt><dd id="taskAgent">-</dd></div>
+              <div><dt>Status</dt><dd id="taskStatus">-</dd></div>
+              <div><dt>Duration</dt><dd id="taskDuration">-</dd></div>
+              <div><dt>Started</dt><dd id="taskStart">-</dd></div>
+              <div><dt>Ended</dt><dd id="taskEnd">-</dd></div>
+              <div><dt>Venue ID</dt><dd id="taskVenueId">-</dd></div>
+              <div><dt>Config ID</dt><dd id="taskConfigId">-</dd></div>
+              <div><dt>Config name</dt><dd id="taskConfigName">-</dd></div>
+            </dl>
+
+            <section class="notes-panel">
+              <h4>Agent issue notes</h4>
+              <p id="taskIssueNotes">No issue notes supplied.</p>
+            </section>
+
+            <section class="qa-form" aria-labelledby="qaDecisionTitle">
+              <h4 id="qaDecisionTitle">QA decision</h4>
+              <div class="decision-grid">
+                <label><input type="radio" name="qaDecision" value="pass" /><span>Pass</span><small>Work is correct</small></label>
+                <label><input type="radio" name="qaDecision" value="error" /><span>Error</span><small>Needs fixing</small></label>
+                <label><input type="radio" name="qaDecision" value="correct_skip" /><span>Correct skip</span><small>Skip was valid</small></label>
+                <label><input type="radio" name="qaDecision" value="incorrect_skip" /><span>Incorrect skip</span><small>Should not be skipped</small></label>
+              </div>
+              <label class="full-width-label">
+                QA notes / error reason
+                <textarea id="qaNotesInput" rows="4" placeholder="Write what was wrong, training notes, or context for the QA result."></textarea>
+              </label>
+            </section>
+
+            <div class="review-actions">
+              <button id="prevTaskBtn" class="secondary-btn" type="button">Previous</button>
+              <button id="saveReviewBtn" class="primary-btn" type="button">Save result</button>
+              <button id="nextTaskBtn" class="secondary-btn" type="button">Next</button>
+            </div>
+          </article>
+
+          <div class="button-row sticky-actions split-actions">
+            <button id="backSampleBtn" class="secondary-btn" type="button">Back to sample</button>
+            <button id="goDashboardBtn" class="primary-btn" type="button" disabled>View dashboard</button>
+          </div>
+        </article>
+      </section>
+
+      <section id="dashboardView" class="view" aria-labelledby="dashboardTitle">
+        <article class="panel dashboard-panel">
+          <div class="panel-header responsive-header">
+            <div>
+              <p class="step-label">Step 4</p>
+              <h2 id="dashboardTitle">QA dashboard</h2>
+              <p class="panel-copy">Track errors, incorrect skips, duration signals, and agent-level QA rates.</p>
+            </div>
+            <div class="button-row">
+              <button id="exportCsvBtn" class="secondary-btn" type="button" disabled>Export QA CSV</button>
+              <button id="exportJsonBtn" class="secondary-btn" type="button" disabled>Export session JSON</button>
+            </div>
+          </div>
+
+          <div class="metric-grid dashboard-metrics">
+            <article class="metric-card big">
+              <span>QA'd</span>
+              <strong id="reviewedMetric">0</strong>
+            </article>
+            <article class="metric-card big">
+              <span>Errors</span>
+              <strong id="errorsMetric">0</strong>
+            </article>
+            <article class="metric-card big">
+              <span>Error rate</span>
+              <strong id="errorRateMetric">0%</strong>
+            </article>
+            <article class="metric-card big">
+              <span>Avg duration</span>
+              <strong id="avgDurationMetric">-</strong>
+            </article>
+          </div>
+
+          <h3 class="subheading">Agent stats</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>QA'd</th>
+                  <th>Pass</th>
+                  <th>Errors</th>
+                  <th>Error %</th>
+                  <th>Skipped checked</th>
+                  <th>Incorrect skips</th>
+                  <th>Avg duration</th>
+                </tr>
+              </thead>
+              <tbody id="agentStatsTable">
+                <tr><td colspan="8" class="table-empty">No QA results yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 class="subheading">Reviewed tasks</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Agent</th>
+                  <th>Status</th>
+                  <th>Venue</th>
+                  <th>Config</th>
+                  <th>Duration</th>
+                  <th>QA decision</th>
+                  <th>QA notes</th>
+                </tr>
+              </thead>
+              <tbody id="reviewedTasksTable">
+                <tr><td colspan="8" class="table-empty">No reviewed tasks yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="button-row sticky-actions split-actions">
+            <button id="backReviewBtn" class="secondary-btn" type="button">Back to review</button>
+            <button id="restartBtn" class="ghost-btn" type="button">Start over</button>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>Runs fully in your browser. Uploaded files and QA notes are not sent to a server.</p>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 </body>
 </html>

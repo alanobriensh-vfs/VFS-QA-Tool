@@ -1,6 +1,9 @@
-const STORAGE_KEY = "vfsQaToolSessionV3";
+const STORAGE_KEY = "vfsQaToolSessionV4";
+
+const VIEW_ORDER = ["uploadView", "sampleView", "reviewView", "dashboardView"];
 
 const state = {
+  activeView: "uploadView",
   workbookName: "",
   headerRowNumber: 3,
   rawRows: [],
@@ -16,6 +19,24 @@ const state = {
 
 const els = {};
 
+const REQUIRED_COLUMNS = ["agent", "status", "venueId", "configId"];
+
+const COLUMN_ALIASES = {
+  agent: ["AGENT"],
+  status: ["STATUS"],
+  start: ["START", "START TIME", "STARTED"],
+  end: ["END", "END TIME", "ENDED"],
+  duration: ["DURATION", "DURATION MIN", "DURATION MINS", "DURATION (MIN)", "DURATION_MINUTES"],
+  issueNotes: ["ISSUE NOTES", "ISSUE NOTE", "NOTES", "AGENT NOTES", "ISSUE_NOTES"],
+  venueName: ["VENUE_NAME", "VENUE NAME", "VENUE"],
+  venueId: ["VENUE_ID", "VENUE ID", "VENUEID"],
+  configId: ["VENUE_CONFIG_ID", "VENUE CONFIG ID", "CONFIG_ID", "CONFIG ID", "CONFIGID", "VENUECONFIGID"],
+  configName: ["VENUE_CONFIG", "VENUE CONFIG", "CONFIG_NAME", "CONFIG NAME", "CONFIG"],
+  eventIds: ["ALL_EVENT_IDS", "EVENT_ID", "EVENT IDS", "EVENT ID"],
+  eventNames: ["ALL_EVENT_NAMES", "EVENT_NAME", "EVENT NAMES", "EVENT NAME"],
+  taskType: ["TASK TYPE", "TASK_TYPE"],
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   attachEvents();
@@ -24,101 +45,152 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function cacheElements() {
   const ids = [
-    "fileInput", "fileStatus", "headerRowInput", "sampleSizeInput", "sampleModeInput", "seedInput",
+    "fileInput", "dropZone", "fileStatus", "headerRowInput", "sampleSizeInput", "sampleModeInput", "seedInput",
     "generateSampleBtn", "reshuffleBtn", "parseWarnings", "totalRowsMetric", "candidateRowsMetric",
-    "doneRowsMetric", "skippedRowsMetric", "agentBreakdown", "reviewProgress", "reviewEmpty", "taskCard",
+    "doneRowsMetric", "skippedRowsMetric", "agentBreakdown", "reviewProgress", "reviewProgressBar", "reviewEmpty", "taskCard",
     "taskCounter", "taskTitle", "vfsLink", "taskAgent", "taskStatus", "taskDuration", "taskStart", "taskEnd",
     "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "prevTaskBtn",
     "saveReviewBtn", "nextTaskBtn", "reviewedMetric", "errorsMetric", "errorRateMetric", "avgDurationMetric",
-    "agentStatsTable", "reviewedTasksTable", "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn"
+    "agentStatsTable", "reviewedTasksTable", "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
+    "goSampleBtn", "startReviewBtn", "goDashboardBtn", "backUploadBtn", "backSampleBtn", "backReviewBtn", "restartBtn",
+    "sampleWorkbookName", "sampleCandidateCount", "sampleSelectedCount", "sampleModeLabel", "sampleRosterTable", "toast"
   ];
-  ids.forEach((id) => { els[id] = document.getElementById(id); });
+
+  ids.forEach((id) => {
+    els[id] = document.getElementById(id);
+  });
 }
 
 function attachEvents() {
-  els.fileInput.addEventListener("change", handleFileUpload);
-  els.headerRowInput.addEventListener("change", () => {
+  els.fileInput?.addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    if (file) handleFile(file);
+  });
+
+  setupDropZone();
+
+  els.headerRowInput?.addEventListener("change", () => {
     state.headerRowNumber = parsePositiveInt(els.headerRowInput.value, 3);
     if (state.rawRows.length) processRows();
   });
-  els.generateSampleBtn.addEventListener("click", () => generateSample(false));
-  els.reshuffleBtn.addEventListener("click", () => generateSample(true));
-  els.sampleModeInput.addEventListener("change", () => {
+
+  els.sampleSizeInput?.addEventListener("input", () => updateSampleSummary());
+  els.sampleModeInput?.addEventListener("change", () => {
     state.sampleMode = els.sampleModeInput.value;
+    updateSampleSummary();
   });
-  els.seedInput.addEventListener("input", () => {
+  els.seedInput?.addEventListener("input", () => {
     state.seed = els.seedInput.value.trim();
   });
-  els.prevTaskBtn.addEventListener("click", () => moveTask(-1));
-  els.nextTaskBtn.addEventListener("click", () => moveTask(1));
-  els.saveReviewBtn.addEventListener("click", saveCurrentReview);
-  els.exportCsvBtn.addEventListener("click", exportResultsCsv);
-  els.exportJsonBtn.addEventListener("click", exportSessionJson);
-  els.loadSavedBtn.addEventListener("click", loadSavedSession);
-  els.clearSavedBtn.addEventListener("click", clearSavedSession);
-  document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
-    radio.addEventListener("change", saveCurrentReview);
+
+  els.goSampleBtn?.addEventListener("click", () => setView("sampleView"));
+  els.backUploadBtn?.addEventListener("click", () => setView("uploadView"));
+  els.backSampleBtn?.addEventListener("click", () => setView("sampleView"));
+  els.backReviewBtn?.addEventListener("click", () => setView("reviewView"));
+  els.startReviewBtn?.addEventListener("click", () => setView("reviewView"));
+  els.goDashboardBtn?.addEventListener("click", () => setView("dashboardView"));
+  els.restartBtn?.addEventListener("click", startOver);
+
+  els.generateSampleBtn?.addEventListener("click", () => generateSample(false));
+  els.reshuffleBtn?.addEventListener("click", () => generateSample(true));
+
+  els.prevTaskBtn?.addEventListener("click", () => moveTask(-1));
+  els.nextTaskBtn?.addEventListener("click", () => moveTask(1));
+  els.saveReviewBtn?.addEventListener("click", () => {
+    saveCurrentReview();
+    showToast("QA result saved.");
   });
-  els.qaNotesInput.addEventListener("blur", saveCurrentReview);
+
+  document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      saveCurrentReview();
+      updateReviewCard();
+    });
+  });
+
+  els.qaNotesInput?.addEventListener("blur", saveCurrentReview);
+  els.exportCsvBtn?.addEventListener("click", exportResultsCsv);
+  els.exportJsonBtn?.addEventListener("click", exportSessionJson);
+  els.loadSavedBtn?.addEventListener("click", loadSavedSession);
+  els.clearSavedBtn?.addEventListener("click", clearSavedSession);
+
+  document.querySelectorAll(".step-button[data-view]").forEach((button) => {
+    button.addEventListener("click", () => setView(button.dataset.view));
+  });
 }
 
-async function handleFileUpload(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
+function setupDropZone() {
+  if (!els.dropZone) return;
 
+  ["dragenter", "dragover"].forEach((eventName) => {
+    els.dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      els.dropZone.classList.add("is-dragover");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((eventName) => {
+    els.dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      els.dropZone.classList.remove("is-dragover");
+    });
+  });
+
+  els.dropZone.addEventListener("drop", (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (file) handleFile(file);
+  });
+}
+
+async function handleFile(file) {
   try {
-    const rows = await parseSpreadsheetFile(file);
+    showWarnings([]);
+    setFileStatus(`Reading ${file.name}...`, "muted");
+    const rows = await readWorkbookRows(file);
+
     resetStateForNewWorkbook(file.name, rows);
     processRows();
-    updateAllViews();
-    saveSession();
+
+    if (state.candidates.length) {
+      showToast(`Loaded ${formatNumber(state.candidates.length)} QA candidates.`);
+      setView("uploadView");
+    }
   } catch (error) {
+    setFileStatus("Could not read file", "bad");
     showWarnings([`Could not read the file. ${error.message || error}`]);
   }
 }
 
-async function parseSpreadsheetFile(file) {
-  const arrayBuffer = await file.arrayBuffer();
+async function readWorkbookRows(file) {
+  const extension = file.name.split(".").pop().toLowerCase();
+  const buffer = await file.arrayBuffer();
 
-  if (isCsvFile(file)) {
-    const text = decodeTextBuffer(arrayBuffer);
-    return parseCsv(text);
+  if (extension === "csv") {
+    return parseCsv(textFromBuffer(buffer));
   }
 
   await ensureXlsxLoaded();
-  const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false, raw: false });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: false, raw: false });
   const firstSheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheetName];
   return XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
     defval: "",
     raw: false,
-    // Keep blank rows so the Header row number matches the real spreadsheet row number.
-    // The VFS workbook often has a blank row 1, then rough headers on row 2, then real headers on row 3.
     blankrows: true,
   });
 }
 
-function isCsvFile(file) {
-  return /\.csv$/i.test(file.name || "") || /csv/i.test(file.type || "");
-}
-
-function decodeTextBuffer(arrayBuffer) {
-  const encodings = [
-    { label: "utf-8", options: { fatal: true } },
-    { label: "windows-1252" },
-    { label: "iso-8859-1" },
-  ];
-
-  for (const encoding of encodings) {
+function textFromBuffer(buffer) {
+  let text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  if (text.includes("\uFFFD")) {
     try {
-      return new TextDecoder(encoding.label, encoding.options || {}).decode(arrayBuffer).replace(/^\uFEFF/, "");
+      text = new TextDecoder("windows-1252", { fatal: false }).decode(buffer);
     } catch (error) {
-      // Try the next encoding. VFS CSV exports can contain Windows-1252 characters.
+      // Keep the UTF-8-decoded version if the browser does not support windows-1252.
     }
   }
-
-  return new TextDecoder().decode(arrayBuffer).replace(/^\uFEFF/, "");
+  return text.replace(/^\uFEFF/, "");
 }
 
 function parseCsv(text) {
@@ -126,7 +198,6 @@ function parseCsv(text) {
   let row = [];
   let cell = "";
   let inQuotes = false;
-  let justEndedRow = false;
 
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i];
@@ -139,27 +210,25 @@ function parseCsv(text) {
       } else {
         inQuotes = !inQuotes;
       }
-      justEndedRow = false;
     } else if (char === "," && !inQuotes) {
       row.push(cell);
       cell = "";
-      justEndedRow = false;
     } else if ((char === "\n" || char === "\r") && !inQuotes) {
       row.push(cell);
       rows.push(row);
       row = [];
       cell = "";
-      justEndedRow = true;
       if (char === "\r" && next === "\n") i += 1;
     } else {
       cell += char;
-      justEndedRow = false;
     }
   }
 
-  if (cell.length || row.length || !justEndedRow) {
-    row.push(cell);
-    rows.push(row);
+  row.push(cell);
+  rows.push(row);
+
+  if (rows.length && rows[rows.length - 1].every((value) => clean(value) === "")) {
+    rows.pop();
   }
 
   return rows;
@@ -171,6 +240,7 @@ function ensureXlsxLoaded() {
       resolve();
       return;
     }
+
     const started = Date.now();
     const timer = window.setInterval(() => {
       if (window.XLSX) {
@@ -195,42 +265,41 @@ function resetStateForNewWorkbook(name, rows) {
   state.currentIndex = 0;
   state.reviews = {};
   state.seed = els.seedInput.value.trim() || makeSeed();
+  state.sampleMode = els.sampleModeInput.value || "balanced";
   els.seedInput.value = state.seed;
 }
 
 function processRows() {
   const warnings = [];
-  const required = ["agent", "status", "venueId", "configId"];
   let headerIndex = Math.max(0, state.headerRowNumber - 1);
   let headerRow = state.rawRows[headerIndex] || [];
-  state.headers = makeHeaders(headerRow);
-  state.columnMap = detectColumns(state.headers);
+  let headers = makeHeaders(headerRow);
+  let columnMap = detectColumns(headers);
 
-  if (required.some((key) => state.columnMap[key] === -1)) {
-    const detected = autoDetectHeaderRow(state.rawRows, required);
-    if (detected && detected.index !== headerIndex) {
-      headerIndex = detected.index;
-      state.headerRowNumber = detected.index + 1;
-      els.headerRowInput.value = String(state.headerRowNumber);
-      state.headers = detected.headers;
-      state.columnMap = detected.columnMap;
-      warnings.push(`Auto-detected the real header row as row ${state.headerRowNumber}.`);
+  if (!hasRequiredColumns(columnMap)) {
+    const detectedIndex = detectHeaderRowIndex(state.rawRows);
+    if (detectedIndex !== -1 && detectedIndex !== headerIndex) {
+      headerIndex = detectedIndex;
+      state.headerRowNumber = detectedIndex + 1;
+      els.headerRowInput.value = state.headerRowNumber;
+      headerRow = state.rawRows[headerIndex] || [];
+      headers = makeHeaders(headerRow);
+      columnMap = detectColumns(headers);
+      warnings.push(`Auto-detected row ${state.headerRowNumber} as the task header row.`);
     }
   }
 
+  state.headers = headers;
+  state.columnMap = columnMap;
   state.candidates = [];
   state.sample = [];
   state.currentIndex = 0;
   state.reviews = {};
 
-  const missingRequired = required.filter((key) => state.columnMap[key] === -1);
-  if (missingRequired.length) {
-    const previewHeaders = state.headers.slice(0, 30).join(" | ") || "No headers found";
-    warnings.push(`Using header row ${state.headerRowNumber}. Detected headers: ${previewHeaders}`);
-  }
-
-  missingRequired.forEach((key) => {
-    warnings.push(`Could not detect required column: ${key}. Check the header row setting.`);
+  REQUIRED_COLUMNS.forEach((key) => {
+    if (state.columnMap[key] === -1) {
+      warnings.push(`Could not detect required column: ${key}. Detected headers: ${state.headers.slice(0, 18).join(" | ") || "none"}`);
+    }
   });
 
   for (let rowIndex = headerIndex + 1; rowIndex < state.rawRows.length; rowIndex += 1) {
@@ -242,13 +311,32 @@ function processRows() {
     }
   }
 
-  if (!state.candidates.length && state.rawRows.length) {
+  if (!state.candidates.length && state.rawRows.length && hasRequiredColumns(state.columnMap)) {
     warnings.push("No QA candidates found. Candidates need an agent name and a status of Done or Skipped.");
   }
 
   showWarnings(warnings);
   updateAllViews();
   saveSession();
+}
+
+function detectHeaderRowIndex(rows) {
+  let best = { index: -1, score: -1 };
+  const maxRows = Math.min(rows.length, 30);
+
+  for (let i = 0; i < maxRows; i += 1) {
+    const headers = makeHeaders(rows[i] || []);
+    const columnMap = detectColumns(headers);
+    const score = REQUIRED_COLUMNS.reduce((total, key) => total + (columnMap[key] >= 0 ? 1 : 0), 0);
+    if (score > best.score) best = { index: i, score };
+    if (score === REQUIRED_COLUMNS.length) return i;
+  }
+
+  return best.score >= 3 ? best.index : -1;
+}
+
+function hasRequiredColumns(columnMap) {
+  return REQUIRED_COLUMNS.every((key) => columnMap[key] >= 0);
 }
 
 function makeHeaders(headerRow) {
@@ -262,54 +350,20 @@ function makeHeaders(headerRow) {
   });
 }
 
-function autoDetectHeaderRow(rows, requiredKeys) {
-  let best = null;
-  const maxScanRows = Math.min(rows.length, 25);
-
-  for (let index = 0; index < maxScanRows; index += 1) {
-    const headers = makeHeaders(rows[index] || []);
-    const columnMap = detectColumns(headers);
-    const requiredMatches = requiredKeys.filter((key) => columnMap[key] !== -1).length;
-    const optionalMatches = ["duration", "issueNotes", "venueName", "configName", "eventIds", "eventNames", "taskType"]
-      .filter((key) => columnMap[key] !== -1).length;
-    const normalizedHeaderText = headers.map(normalizeKey).join("|");
-    const vfsSpecificBonus = ["VENUECONFIGID", "VENUECONFIG", "ISSUENOTES", "TASKTYPE", "ALLEVENTIDS"]
-      .filter((token) => normalizedHeaderText.includes(token)).length;
-    const score = (requiredMatches * 10) + optionalMatches + vfsSpecificBonus;
-
-    if (!best || score > best.score) {
-      best = { index, headers, columnMap, requiredMatches, score };
-    }
-  }
-
-  return best && best.requiredMatches === requiredKeys.length ? best : null;
-}
-
 function detectColumns(headers) {
-  return {
-    agent: findColumn(headers, ["AGENT"], 0),
-    status: findColumn(headers, ["STATUS"], 1),
-    start: findColumn(headers, ["START"]),
-    end: findColumn(headers, ["END"]),
-    duration: findColumn(headers, ["DURATION", "DURATION MIN", "DURATION (MIN)"]),
-    issueNotes: findColumn(headers, ["ISSUE NOTES", "NOTES", "ISSUE NOTE"]),
-    venueName: findColumn(headers, ["VENUE_NAME", "VENUE NAME"]),
-    venueId: findColumn(headers, ["VENUE_ID", "VENUE ID"]),
-    configId: findColumn(headers, ["VENUE_CONFIG_ID", "VENUE CONFIG ID", "CONFIG_ID", "CONFIG ID", "CONFIGID"]),
-    configName: findColumn(headers, ["VENUE_CONFIG", "VENUE CONFIG", "CONFIG_NAME", "CONFIG NAME"]),
-    eventIds: findColumn(headers, ["ALL_EVENT_IDS", "EVENT_ID", "EVENT IDS", "EVENT ID"]),
-    eventNames: findColumn(headers, ["ALL_EVENT_NAMES", "EVENT_NAME", "EVENT NAMES", "EVENT NAME"]),
-    taskType: findColumn(headers, ["TASK TYPE", "Task Type"]),
-  };
+  return Object.fromEntries(Object.entries(COLUMN_ALIASES).map(([key, aliases]) => [key, findColumn(headers, aliases, key)]));
 }
 
-function findColumn(headers, aliases, fallbackIndex = -1) {
+function findColumn(headers, aliases, key) {
   const normalizedAliases = aliases.map(normalizeKey);
   for (let i = 0; i < headers.length; i += 1) {
     const normalizedHeader = normalizeKey(headers[i]);
     if (normalizedAliases.includes(normalizedHeader)) return i;
   }
-  return fallbackIndex >= 0 && fallbackIndex < headers.length ? fallbackIndex : -1;
+
+  if (key === "agent" && headers.length > 0) return 0;
+  if (key === "status" && headers.length > 1) return 1;
+  return -1;
 }
 
 function buildTask(row, sheetRowNumber) {
@@ -317,6 +371,7 @@ function buildTask(row, sheetRowNumber) {
     const index = state.columnMap[key];
     return index >= 0 ? clean(row[index]) : "";
   };
+
   const venueId = get("venueId");
   const configId = get("configId");
   const task = {
@@ -343,6 +398,7 @@ function buildTask(row, sheetRowNumber) {
 function generateSample(forceNewSeed) {
   const sampleSize = Math.min(parsePositiveInt(els.sampleSizeInput.value, 20), state.candidates.length);
   state.sampleMode = els.sampleModeInput.value;
+
   if (forceNewSeed || !els.seedInput.value.trim()) {
     state.seed = makeSeed();
     els.seedInput.value = state.seed;
@@ -350,7 +406,10 @@ function generateSample(forceNewSeed) {
     state.seed = els.seedInput.value.trim();
   }
 
-  if (!sampleSize) return;
+  if (!sampleSize) {
+    showToast("No candidate tasks available yet.");
+    return;
+  }
 
   if (state.sampleMode === "proportional") {
     state.sample = proportionalSample(state.candidates, sampleSize, state.seed);
@@ -361,9 +420,11 @@ function generateSample(forceNewSeed) {
   }
 
   state.currentIndex = 0;
+  state.reviews = {};
   updateAllViews();
   saveSession();
-  document.querySelector(".review-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  setView("sampleView");
+  showToast(`Sample generated: ${state.sample.length} tasks.`);
 }
 
 function balancedSample(candidates, sampleSize, seed) {
@@ -371,6 +432,7 @@ function balancedSample(candidates, sampleSize, seed) {
   const groups = groupBy(candidates, "agent");
   const agents = shuffle(Object.keys(groups).sort(), rng);
   const shuffledGroups = {};
+
   agents.forEach((agent) => {
     shuffledGroups[agent] = shuffle([...groups[agent]], rng);
   });
@@ -408,90 +470,192 @@ function proportionalSample(candidates, sampleSize, seed) {
     .map((agent) => ({ agent, remainder: ((groups[agent].length / candidates.length) * sampleSize) - quotas[agent] }))
     .sort((a, b) => b.remainder - a.remainder);
 
-  for (const item of remainders) {
-    if (allocated >= sampleSize) break;
-    quotas[item.agent] += 1;
+  for (let i = 0; allocated < sampleSize && i < remainders.length; i += 1) {
+    quotas[remainders[i].agent] += 1;
     allocated += 1;
   }
 
   const selected = [];
   agents.forEach((agent) => {
-    const shuffled = shuffle([...groups[agent]], rng);
-    selected.push(...shuffled.slice(0, quotas[agent]));
+    selected.push(...shuffle([...groups[agent]], rng).slice(0, quotas[agent]));
   });
 
   return shuffle(selected, rng).slice(0, sampleSize);
 }
 
+function setView(viewId) {
+  if (!VIEW_ORDER.includes(viewId)) return;
+  if (!isViewUnlocked(viewId)) return;
+
+  state.activeView = viewId;
+  document.querySelectorAll(".view").forEach((view) => {
+    view.classList.toggle("is-active", view.id === viewId);
+  });
+  document.querySelectorAll(".step-button[data-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.view === viewId);
+  });
+  saveSession();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function isViewUnlocked(viewId) {
+  if (viewId === "uploadView") return true;
+  if (viewId === "sampleView") return state.candidates.length > 0;
+  if (viewId === "reviewView") return state.sample.length > 0;
+  if (viewId === "dashboardView") return state.sample.length > 0;
+  return false;
+}
+
 function updateAllViews() {
-  updateUploadStatus();
-  updatePoolStats();
+  updateStepper();
+  updateUploadOverview();
+  updateSampleSummary();
+  updateSampleRoster();
   updateReviewCard();
   updateDashboard();
+
+  if (!isViewUnlocked(state.activeView)) {
+    state.activeView = state.sample.length ? "reviewView" : state.candidates.length ? "sampleView" : "uploadView";
+  }
+
+  document.querySelectorAll(".view").forEach((view) => {
+    view.classList.toggle("is-active", view.id === state.activeView);
+  });
+  document.querySelectorAll(".step-button[data-view]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.view === state.activeView);
+  });
 }
 
-function updateUploadStatus() {
-  if (!state.workbookName) {
-    els.fileStatus.textContent = "No file loaded";
-    els.fileStatus.classList.add("muted");
-    els.generateSampleBtn.disabled = true;
-    els.reshuffleBtn.disabled = true;
-    return;
+function updateStepper() {
+  const unlocks = {
+    uploadView: true,
+    sampleView: state.candidates.length > 0,
+    reviewView: state.sample.length > 0,
+    dashboardView: state.sample.length > 0,
+  };
+
+  document.querySelectorAll(".step-button[data-view]").forEach((button) => {
+    button.disabled = !unlocks[button.dataset.view];
+    button.classList.toggle("is-complete", isStepComplete(button.dataset.view));
+  });
+}
+
+function isStepComplete(viewId) {
+  if (viewId === "uploadView") return state.candidates.length > 0;
+  if (viewId === "sampleView") return state.sample.length > 0;
+  if (viewId === "reviewView") return getReviewedTasks().length === state.sample.length && state.sample.length > 0;
+  if (viewId === "dashboardView") return getReviewedTasks().length > 0;
+  return false;
+}
+
+function updateUploadOverview() {
+  els.headerRowInput.value = state.headerRowNumber || 3;
+  els.sampleModeInput.value = state.sampleMode || "balanced";
+  els.seedInput.value = state.seed || "";
+
+  if (state.workbookName) {
+    setFileStatus(state.workbookName, state.candidates.length ? "good" : "muted");
+  } else {
+    setFileStatus("No file loaded", "muted");
   }
-  els.fileStatus.textContent = state.workbookName;
-  els.fileStatus.classList.remove("muted");
+
+  const totalRows = Math.max(0, state.rawRows.length - (state.headerRowNumber || 3));
+  const doneRows = state.candidates.filter((task) => task.status.toLowerCase() === "done").length;
+  const skippedRows = state.candidates.filter((task) => task.status.toLowerCase() === "skipped").length;
+
+  els.totalRowsMetric.textContent = state.rawRows.length ? formatNumber(totalRows) : "-";
+  els.candidateRowsMetric.textContent = state.rawRows.length ? formatNumber(state.candidates.length) : "-";
+  els.doneRowsMetric.textContent = state.rawRows.length ? formatNumber(doneRows) : "-";
+  els.skippedRowsMetric.textContent = state.rawRows.length ? formatNumber(skippedRows) : "-";
+
   els.generateSampleBtn.disabled = !state.candidates.length;
   els.reshuffleBtn.disabled = !state.candidates.length;
+  els.goSampleBtn.disabled = !state.candidates.length;
+
+  renderAgentBreakdown();
 }
 
-function updatePoolStats() {
-  const totalDataRows = Math.max(0, state.rawRows.length - state.headerRowNumber);
-  const done = state.candidates.filter((task) => task.status.toLowerCase() === "done").length;
-  const skipped = state.candidates.filter((task) => task.status.toLowerCase() === "skipped").length;
-
-  els.totalRowsMetric.textContent = state.rawRows.length ? formatNumber(totalDataRows) : "-";
-  els.candidateRowsMetric.textContent = state.rawRows.length ? formatNumber(state.candidates.length) : "-";
-  els.doneRowsMetric.textContent = state.rawRows.length ? formatNumber(done) : "-";
-  els.skippedRowsMetric.textContent = state.rawRows.length ? formatNumber(skipped) : "-";
-
+function renderAgentBreakdown() {
   if (!state.candidates.length) {
-    els.agentBreakdown.className = "agent-breakdown empty-state";
-    els.agentBreakdown.textContent = state.rawRows.length ? "No eligible Done or Skipped tasks found." : "Upload a file to see agent counts.";
+    els.agentBreakdown.innerHTML = "Upload a file to see agent counts.";
+    els.agentBreakdown.classList.add("empty-state");
     return;
   }
 
-  const groups = groupBy(state.candidates, "agent");
-  const max = Math.max(...Object.values(groups).map((items) => items.length));
-  els.agentBreakdown.className = "agent-breakdown agent-list";
-  els.agentBreakdown.innerHTML = Object.keys(groups).sort().map((agent) => {
-    const count = groups[agent].length;
-    const pct = max ? (count / max) * 100 : 0;
-    return `<div class="agent-row"><strong>${escapeHtml(agent)}</strong><div class="agent-bar"><span style="width: ${pct}%"></span></div><span>${count} tasks</span></div>`;
+  els.agentBreakdown.classList.remove("empty-state");
+  const byAgent = groupBy(state.candidates, "agent");
+  const rows = Object.entries(byAgent)
+    .sort(([, a], [, b]) => b.length - a.length)
+    .map(([agent, tasks]) => {
+      const done = tasks.filter((task) => task.status.toLowerCase() === "done").length;
+      const skipped = tasks.filter((task) => task.status.toLowerCase() === "skipped").length;
+      return `<div class="agent-row"><strong>${escapeHtml(agent)}</strong><span>${tasks.length} tasks</span><small>${done} done / ${skipped} skipped</small></div>`;
+    })
+    .join("");
+
+  els.agentBreakdown.innerHTML = rows;
+}
+
+function updateSampleSummary() {
+  const modeLabels = {
+    balanced: "Balanced",
+    proportional: "Proportional",
+    random: "Random",
+  };
+  els.sampleWorkbookName.textContent = state.workbookName || "-";
+  els.sampleCandidateCount.textContent = formatNumber(state.candidates.length || 0);
+  els.sampleSelectedCount.textContent = formatNumber(state.sample.length || 0);
+  els.sampleModeLabel.textContent = modeLabels[els.sampleModeInput?.value || state.sampleMode] || "Balanced";
+  els.startReviewBtn.disabled = !state.sample.length;
+}
+
+function updateSampleRoster() {
+  if (!state.sample.length) {
+    els.sampleRosterTable.innerHTML = `<tr><td colspan="7" class="table-empty">Generate a sample to preview the tasks here.</td></tr>`;
+    return;
+  }
+
+  els.sampleRosterTable.innerHTML = state.sample.map((task, index) => {
+    const noteText = task.issueNotes ? task.issueNotes : "-";
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td><strong>${escapeHtml(task.agent || "-")}</strong></td>
+        <td><span class="mini-pill ${task.status.toLowerCase() === "skipped" ? "skip" : "done"}">${escapeHtml(task.status || "-")}</span></td>
+        <td>${escapeHtml(task.venueName || "-")}</td>
+        <td>${task.vfsUrl ? `<a href="${escapeHtml(task.vfsUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(task.configId || "Open")}</a>` : escapeHtml(task.configId || "-")}</td>
+        <td>${escapeHtml(formatDuration(task.duration))}</td>
+        <td title="${escapeHtml(noteText)}">${escapeHtml(truncate(noteText, 70))}</td>
+      </tr>`;
   }).join("");
 }
 
 function updateReviewCard() {
-  if (!state.sample.length) {
+  const hasSample = state.sample.length > 0;
+  els.reviewEmpty.classList.toggle("hidden", hasSample);
+  els.taskCard.classList.toggle("hidden", !hasSample);
+  els.goDashboardBtn.disabled = !hasSample;
+  els.exportJsonBtn.disabled = !hasSample;
+
+  if (!hasSample) {
     els.reviewProgress.textContent = "No sample";
-    els.reviewProgress.classList.add("muted");
-    els.reviewEmpty.classList.remove("hidden");
-    els.taskCard.classList.add("hidden");
+    els.reviewProgressBar.style.width = "0%";
     return;
   }
 
+  if (state.currentIndex < 0) state.currentIndex = 0;
+  if (state.currentIndex >= state.sample.length) state.currentIndex = state.sample.length - 1;
+
   const task = state.sample[state.currentIndex];
-  const review = state.reviews[task.key] || {};
-  const reviewedCount = state.sample.filter((item) => state.reviews[item.key]?.decision).length;
+  const review = state.reviews[task.key] || { decision: "", notes: "" };
+  const reviewedCount = getReviewedTasks().length;
+  const progressPct = Math.round((reviewedCount / state.sample.length) * 100);
 
   els.reviewProgress.textContent = `${reviewedCount}/${state.sample.length} reviewed`;
-  els.reviewProgress.classList.toggle("muted", reviewedCount === 0);
-  els.reviewEmpty.classList.add("hidden");
-  els.taskCard.classList.remove("hidden");
-
-  els.taskCounter.textContent = `Task ${state.currentIndex + 1} of ${state.sample.length} | Sheet row ${task.rowNumber}`;
-  els.taskTitle.textContent = task.venueName || "Unknown venue";
+  els.reviewProgressBar.style.width = `${progressPct}%`;
+  els.taskCounter.textContent = `Task ${state.currentIndex + 1} of ${state.sample.length}`;
+  els.taskTitle.textContent = task.venueName ? `${task.venueName}` : `Venue ${task.venueId || "-"}`;
   els.vfsLink.href = task.vfsUrl || "#";
-  els.vfsLink.textContent = task.vfsUrl ? "Open VFS page" : "Missing VFS link";
   els.vfsLink.classList.toggle("disabled-link", !task.vfsUrl);
   els.taskAgent.textContent = task.agent || "-";
   els.taskStatus.textContent = task.status || "-";
@@ -502,17 +666,20 @@ function updateReviewCard() {
   els.taskConfigId.textContent = task.configId || "-";
   els.taskConfigName.textContent = task.configName || "-";
   els.taskIssueNotes.textContent = task.issueNotes || "No issue notes supplied.";
+  els.qaNotesInput.value = review.notes || "";
 
   document.querySelectorAll("input[name='qaDecision']").forEach((radio) => {
     radio.checked = radio.value === review.decision;
+    radio.closest("label")?.classList.toggle("is-selected", radio.checked);
   });
-  els.qaNotesInput.value = review.notes || "";
+
   els.prevTaskBtn.disabled = state.currentIndex === 0;
   els.nextTaskBtn.disabled = state.currentIndex === state.sample.length - 1;
 }
 
 function saveCurrentReview() {
   if (!state.sample.length) return;
+
   const task = state.sample[state.currentIndex];
   const decision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
   const notes = els.qaNotesInput.value.trim();
@@ -526,8 +693,9 @@ function saveCurrentReview() {
       reviewedAt: new Date().toISOString(),
     };
   }
+
   updateDashboard();
-  updateReviewCard();
+  updateStepper();
   saveSession();
 }
 
@@ -619,7 +787,7 @@ function renderReviewedTasks(reviewedTasks) {
         <td>${escapeHtml(task.venueName || "-")}</td>
         <td>${configCell}</td>
         <td>${escapeHtml(formatDuration(task.duration))}</td>
-        <td>${escapeHtml(formatDecision(review.decision))}</td>
+        <td><span class="mini-pill ${isErrorDecision(review.decision) ? "error" : "done"}">${escapeHtml(formatDecision(review.decision))}</span></td>
         <td>${escapeHtml(review.notes || "")}</td>
       </tr>`;
   }).join("");
@@ -643,6 +811,7 @@ function exportResultsCsv() {
   ]);
 
   downloadText(csvString([headers, ...rows]), makeExportName("vfs-qa-results", "csv"), "text/csv;charset=utf-8");
+  showToast("QA CSV exported.");
 }
 
 function exportSessionJson() {
@@ -657,11 +826,13 @@ function exportSessionJson() {
     reviews: state.reviews,
   };
   downloadText(JSON.stringify(exportState, null, 2), makeExportName("vfs-qa-session", "json"), "application/json;charset=utf-8");
+  showToast("Session JSON exported.");
 }
 
 function saveSession() {
   try {
     const payload = {
+      activeView: state.activeView,
       workbookName: state.workbookName,
       headerRowNumber: state.headerRowNumber,
       rawRows: state.rawRows,
@@ -686,6 +857,7 @@ function loadSavedSession() {
     showWarnings(["No saved session was found in this browser."]);
     return;
   }
+
   try {
     const saved = JSON.parse(raw);
     Object.assign(state, saved);
@@ -694,6 +866,7 @@ function loadSavedSession() {
     els.sampleModeInput.value = state.sampleMode || "balanced";
     showWarnings([]);
     updateAllViews();
+    showToast("Saved session loaded.");
   } catch (error) {
     showWarnings([`Could not load saved session. ${error.message || error}`]);
   }
@@ -701,10 +874,40 @@ function loadSavedSession() {
 
 function clearSavedSession() {
   localStorage.removeItem(STORAGE_KEY);
-  showWarnings(["Saved browser session cleared. The uploaded source file itself was never stored outside this browser."]);
+  showToast("Saved browser session cleared.");
+}
+
+function startOver() {
+  state.activeView = "uploadView";
+  state.workbookName = "";
+  state.headerRowNumber = 3;
+  state.rawRows = [];
+  state.headers = [];
+  state.columnMap = {};
+  state.candidates = [];
+  state.sample = [];
+  state.currentIndex = 0;
+  state.reviews = {};
+  state.seed = "";
+  state.sampleMode = "balanced";
+
+  if (els.fileInput) els.fileInput.value = "";
+  localStorage.removeItem(STORAGE_KEY);
+  showWarnings([]);
+  updateAllViews();
+  setView("uploadView");
+  showToast("Started a fresh QA session.");
+}
+
+function setFileStatus(text, tone) {
+  if (!els.fileStatus) return;
+  els.fileStatus.textContent = text;
+  els.fileStatus.classList.toggle("muted", tone === "muted");
+  els.fileStatus.classList.toggle("bad", tone === "bad");
 }
 
 function showWarnings(warnings) {
+  if (!els.parseWarnings) return;
   if (!warnings.length) {
     els.parseWarnings.classList.add("hidden");
     els.parseWarnings.innerHTML = "";
@@ -712,6 +915,16 @@ function showWarnings(warnings) {
   }
   els.parseWarnings.classList.remove("hidden");
   els.parseWarnings.innerHTML = `<strong>Heads up:</strong><ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`;
+}
+
+function showToast(message) {
+  if (!els.toast) return;
+  els.toast.textContent = message;
+  els.toast.classList.remove("hidden");
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => {
+    els.toast.classList.add("hidden");
+  }, 2600);
 }
 
 function groupBy(items, key) {
@@ -816,6 +1029,11 @@ function downloadText(text, filename, type) {
 function makeExportName(base, extension) {
   const date = new Date().toISOString().slice(0, 10);
   return `${base}-${date}.${extension}`;
+}
+
+function truncate(value, limit) {
+  const text = clean(value);
+  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
 }
 
 function escapeHtml(value) {

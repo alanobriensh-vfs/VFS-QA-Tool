@@ -1,59 +1,51 @@
 # VFS QA Tool
 
-A static GitHub Pages app for QA sampling VFS workbook exports.
+A static GitHub Pages web app for QA sampling VFS workbook tasks.
 
 ## What it does
 
-- Uploads `.csv`, `.xlsx`, `.xls`, or `.xlsm` files in the browser.
-- Uses row 3 as the default header row.
-- Preserves blank spreadsheet rows so the header row number matches the real workbook row.
-- Auto-detects the real header row as a fallback if required columns are not found.
-- Treats the row after the detected header as task data.
-- Filters QA candidates to tasks where:
+- Upload a VFS CSV or Excel workbook in the browser.
+- Uses row 3 as the default task header row and row 4 onward as task data.
+- Auto-detects the header row if the configured row does not contain the expected columns.
+- Filters QA candidates to rows where:
   - `AGENT` is populated.
   - `STATUS` is `Done` or `Skipped`.
-- Keeps skipped tasks in the QA pool.
-- Generates VFS links from `VENUE_ID` and `VENUE_CONFIG_ID`.
-- Creates a QA sample using balanced, proportional, or random sampling.
-- Lets QA reviewers mark tasks as:
-  - Pass
-  - Error
-  - Correctly skipped
-  - Incorrectly skipped
-- Tracks notes/error reasons.
-- Shows agent-level QA stats and duration metrics.
-- Exports QA results as CSV.
-- Saves the current session in browser local storage.
+- Keeps skipped tasks in the QA sample.
+- Builds the VFS page link from `VENUE_ID` and `VENUE_CONFIG_ID`.
+- Generates a QA sample using balanced, proportional, or random sampling.
+- Provides a guided four-step interface:
+  1. Upload
+  2. Sample
+  3. Review
+  4. Dashboard
+- Stores progress in browser local storage.
+- Exports QA results to CSV.
+- Exports the current session to JSON.
+
+## Version 4 updates
+
+- Reworked the UI into a smoother app-style workflow.
+- Added step navigation so only the active stage is shown.
+- Added a dedicated sample roster page.
+- Added a cleaner single-task review card.
+- Added a review progress bar.
+- Added drag-and-drop file upload.
+- Added toast notifications.
+- Added clearer status pills, cards, and dashboard styling.
+- Kept the v3 workbook parsing fixes, including CSV parsing, Windows-1252 fallback decoding, blank row preservation, and explicit `VENUE_ID` / `VENUE_CONFIG_ID` detection.
 
 ## GitHub Pages setup
 
-1. Upload these files to the root of your repository:
-   - `index.html`
-   - `styles.css`
-   - `app.js`
-   - `.nojekyll`
-   - `README.md`
-2. In GitHub, go to **Settings > Pages**.
-3. Under **Build and deployment**, choose:
-   - Source: `Deploy from a branch`
-   - Branch: `main`
-   - Folder: `/root`
-4. Save.
-5. Open the Pages URL GitHub gives you.
+Upload these files to the root of the repository:
+
+- `index.html`
+- `styles.css`
+- `app.js`
+- `README.md`
+- `.nojekyll`
+
+Then go to the repository's **Settings > Pages** and publish from the `main` branch root.
 
 ## Privacy note
 
-This first version is fully static. Uploaded workbooks and QA notes are processed in the browser and are not sent to a server by this app.
-
-## Current limitation
-
-Because this is hosted on GitHub Pages without a backend, QA results are stored locally in the reviewer's browser and/or exported as CSV. For a shared team dashboard later, add a backend such as Google Sheets, Supabase, Firebase, or a small API.
-
-
-## v3 fix
-
-Fixed CSV uploads that use Windows-1252/Excel-style encoding. CSV files now use a built-in parser instead of sending CSVs through the XLSX parser, which makes detection of `VENUE_ID` and `VENUE_CONFIG_ID` more reliable. The app also cache-busts `app.js` and `styles.css` so GitHub Pages does not keep serving an older script.
-
-## v2 fix
-
-Fixed CSV parsing for VFS workbook exports that contain a blank first row. The app now preserves blank rows and can auto-detect the actual header row containing `AGENT`, `STATUS`, `VENUE_ID`, and `VENUE_CONFIG_ID`.
+This app runs fully in the browser. Uploaded workbooks and QA notes are not sent to a server by this app.
