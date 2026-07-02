@@ -23,14 +23,12 @@ A static GitHub Pages web app for QA sampling VFS workbook tasks.
 - Exports QA results to CSV.
 - Exports the current session to JSON.
 
-## Version 7 updates
+## Version 8 updates
 
-- Added a full dark visual refresh with glass-style cards, glow accents, and a cleaner app feel.
-- Reworked dashboard charts so they look more visual and less like plain tables.
-- Added a donut chart for QA decisions.
-- Added a lighting score gauge-style chart that shows agent averages against the ideal score of 50.
-- Added stronger visual bar charts for error rate, duration, and brightness distribution.
-- Added dashboard insight cards for quality signal, lighting signal, and training watch.
+- Refined the dark theme with a StubHub/viagogo-inspired palette.
+- Shifted the main accents toward deep purple, marketplace blue, and orange highlights.
+- Updated hero text, step buttons, upload area, review cards, progress bars, charts, and toast styling.
+- Improved dashboard chart contrast while keeping the visual graph work from v7.
 - Kept the v6 numeric 0-100 lighting score model.
 - Kept the existing upload, sampling, review, export, and local-save logic intact.
 
