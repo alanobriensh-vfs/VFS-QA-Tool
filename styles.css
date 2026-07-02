@@ -429,7 +429,7 @@ a {
 .metric-card span {
   display: block;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -795,8 +795,8 @@ tr:last-child td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 128px;
-  padding: 9px 12px;
+  min-width: 158px;
+  padding: 9px 14px;
   border-radius: 999px;
   background: var(--brand-soft);
   color: var(--brand-dark);
@@ -812,7 +812,7 @@ tr:last-child td {
 
 .brightness-scale {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-top: 9px;
   color: var(--muted);
@@ -822,11 +822,15 @@ tr:last-child td {
   letter-spacing: 0.06em;
 }
 
-.brightness-scale span:nth-child(2) {
+.brightness-scale span {
   text-align: center;
 }
 
-.brightness-scale span:nth-child(3) {
+.brightness-scale span:first-child {
+  text-align: left;
+}
+
+.brightness-scale span:last-child {
   text-align: right;
 }
 

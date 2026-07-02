@@ -1,4 +1,4 @@
-const STORAGE_KEY = "vfsQaToolSessionV5";
+const STORAGE_KEY = "vfsQaToolSessionV6";
 
 const VIEW_ORDER = ["uploadView", "sampleView", "reviewView", "dashboardView"];
 
@@ -37,21 +37,17 @@ const COLUMN_ALIASES = {
   taskType: ["TASK TYPE", "TASK_TYPE"],
 };
 
-const BRIGHTNESS_LABELS = {
-  "-2": "Too dark",
-  "-1": "Slightly dark",
-  "0": "Perfect",
-  "1": "Slightly bright",
-  "2": "Too bright",
-};
+const BRIGHTNESS_DEFAULT = 50;
+const BRIGHTNESS_PERFECT_MIN = 45;
+const BRIGHTNESS_PERFECT_MAX = 55;
 
-const BRIGHTNESS_HINTS = {
-  "-2": "Images are too dark and likely need clearer/lightened uploads.",
-  "-1": "Images are a little dark but may still be usable.",
-  "0": "Brightness looks right for QA.",
-  "1": "Images are a little bright but may still be usable.",
-  "2": "Images are too bright or washed out and may need fixing.",
-};
+const BRIGHTNESS_BUCKETS = [
+  { min: 0, max: 20, label: "Too dark" },
+  { min: 21, max: 44, label: "Slightly too dark" },
+  { min: 45, max: 55, label: "Perfect" },
+  { min: 56, max: 79, label: "Slightly too bright" },
+  { min: 80, max: 100, label: "Too bright" },
+];
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
@@ -67,8 +63,8 @@ function cacheElements() {
     "taskCounter", "taskTitle", "vfsLink", "taskAgent", "taskStatus", "taskDuration", "taskStart", "taskEnd",
     "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "brightnessSlider",
     "brightnessValue", "brightnessHint", "prevTaskBtn", "saveReviewBtn", "nextTaskBtn", "reviewedMetric",
-    "errorsMetric", "errorRateMetric", "avgDurationMetric", "brightnessIssueMetric", "decisionChart",
-    "agentErrorChart", "brightnessChart", "durationChart", "agentStatsTable", "reviewedTasksTable",
+    "errorsMetric", "errorRateMetric", "avgDurationMetric", "brightnessIssueMetric", "avgBrightnessMetric", "decisionChart",
+    "agentErrorChart", "brightnessChart", "lightingScoreChart", "durationChart", "agentStatsTable", "reviewedTasksTable",
     "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
     "goSampleBtn", "startReviewBtn", "goDashboardBtn", "backUploadBtn", "backSampleBtn", "backReviewBtn", "restartBtn",
     "sampleWorkbookName", "sampleCandidateCount", "sampleSelectedCount", "sampleModeLabel", "sampleRosterTable", "toast"
@@ -669,7 +665,7 @@ function updateReviewCard() {
   if (state.currentIndex >= state.sample.length) state.currentIndex = state.sample.length - 1;
 
   const task = state.sample[state.currentIndex];
-  const review = state.reviews[task.key] || { decision: "", notes: "", brightness: 0 };
+  const review = state.reviews[task.key] || { decision: "", notes: "", brightness: BRIGHTNESS_DEFAULT };
   const reviewedCount = getReviewedTasks().length;
   const progressPct = Math.round((reviewedCount / state.sample.length) * 100);
 
@@ -707,9 +703,9 @@ function saveCurrentReview() {
   const existing = state.reviews[task.key] || {};
   const decision = document.querySelector("input[name='qaDecision']:checked")?.value || "";
   const notes = els.qaNotesInput.value.trim();
-  const brightness = parseBrightness(els.brightnessSlider?.value ?? existing.brightness ?? 0);
+  const brightness = parseBrightness(els.brightnessSlider?.value ?? existing.brightness ?? BRIGHTNESS_DEFAULT);
 
-  if (!decision && !notes && brightness === 0) {
+  if (!decision && !notes && brightness === BRIGHTNESS_DEFAULT) {
     delete state.reviews[task.key];
   } else {
     state.reviews[task.key] = {
@@ -741,13 +737,16 @@ function updateDashboard() {
   const errors = reviewedTasks.filter((item) => isErrorDecision(item.review.decision)).length;
   const durations = reviewedTasks.map((item) => parseFloat(item.task.duration)).filter(Number.isFinite);
   const avgDuration = durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : null;
-  const brightnessIssues = reviewedTasks.filter((item) => parseBrightness(item.review.brightness) !== 0).length;
+  const brightnessScores = reviewedTasks.map((item) => parseBrightness(item.review.brightness)).filter(Number.isFinite);
+  const avgBrightness = brightnessScores.length ? brightnessScores.reduce((sum, value) => sum + value, 0) / brightnessScores.length : null;
+  const brightnessIssues = reviewedTasks.filter((item) => !isBrightnessPerfect(item.review.brightness)).length;
 
   els.reviewedMetric.textContent = formatNumber(reviewedTasks.length);
   els.errorsMetric.textContent = formatNumber(errors);
   els.errorRateMetric.textContent = reviewedTasks.length ? `${Math.round((errors / reviewedTasks.length) * 100)}%` : "0%";
   els.avgDurationMetric.textContent = avgDuration === null ? "-" : `${avgDuration.toFixed(1)} min`;
   if (els.brightnessIssueMetric) els.brightnessIssueMetric.textContent = formatNumber(brightnessIssues);
+  if (els.avgBrightnessMetric) els.avgBrightnessMetric.textContent = avgBrightness === null ? "-" : formatBrightness(avgBrightness);
   els.exportCsvBtn.disabled = !reviewedTasks.length;
   els.exportJsonBtn.disabled = !state.sample.length;
 
@@ -759,25 +758,27 @@ function updateDashboard() {
 function getReviewedTasks() {
   return state.sample
     .map((task, index) => ({ task, review: state.reviews[task.key], sampleNumber: index + 1 }))
-    .filter((item) => item.review?.decision || item.review?.notes || parseBrightness(item.review?.brightness) !== 0);
+    .filter((item) => item.review?.decision || item.review?.notes || parseBrightness(item.review?.brightness ?? BRIGHTNESS_DEFAULT) !== BRIGHTNESS_DEFAULT);
 }
 
 function renderAgentStats(reviewedTasks) {
   if (!reviewedTasks.length) {
-    els.agentStatsTable.innerHTML = `<tr><td colspan="9" class="table-empty">No QA results yet.</td></tr>`;
+    els.agentStatsTable.innerHTML = `<tr><td colspan="10" class="table-empty">No QA results yet.</td></tr>`;
     return;
   }
 
   const byAgent = {};
   reviewedTasks.forEach(({ task, review }) => {
-    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, brightnessIssues: 0, durations: [] };
+    byAgent[task.agent] ||= { reviewed: 0, pass: 0, errors: 0, skipped: 0, incorrectSkips: 0, brightnessIssues: 0, durations: [], brightnessScores: [] };
     const bucket = byAgent[task.agent];
     bucket.reviewed += 1;
     if (review.decision === "pass" || review.decision === "correct_skip") bucket.pass += 1;
     if (isErrorDecision(review.decision)) bucket.errors += 1;
     if (task.status.toLowerCase() === "skipped") bucket.skipped += 1;
     if (review.decision === "incorrect_skip") bucket.incorrectSkips += 1;
-    if (parseBrightness(review.brightness) !== 0) bucket.brightnessIssues += 1;
+    const brightnessScore = parseBrightness(review.brightness);
+    if (!isBrightnessPerfect(brightnessScore)) bucket.brightnessIssues += 1;
+    bucket.brightnessScores.push(brightnessScore);
     const duration = parseFloat(task.duration);
     if (Number.isFinite(duration)) bucket.durations.push(duration);
   });
@@ -786,6 +787,9 @@ function renderAgentStats(reviewedTasks) {
     const errorPct = bucket.reviewed ? `${Math.round((bucket.errors / bucket.reviewed) * 100)}%` : "0%";
     const avgDuration = bucket.durations.length
       ? `${(bucket.durations.reduce((sum, value) => sum + value, 0) / bucket.durations.length).toFixed(1)} min`
+      : "-";
+    const avgBrightness = bucket.brightnessScores.length
+      ? formatBrightness(bucket.brightnessScores.reduce((sum, value) => sum + value, 0) / bucket.brightnessScores.length)
       : "-";
     return `
       <tr>
@@ -797,6 +801,7 @@ function renderAgentStats(reviewedTasks) {
         <td>${bucket.skipped}</td>
         <td>${bucket.incorrectSkips}</td>
         <td>${bucket.brightnessIssues}</td>
+        <td>${avgBrightness}</td>
         <td>${avgDuration}</td>
       </tr>`;
   }).join("");
@@ -831,6 +836,7 @@ function renderDashboardCharts(reviewedTasks) {
   renderDecisionChart(reviewedTasks);
   renderAgentErrorChart(reviewedTasks);
   renderBrightnessChart(reviewedTasks);
+  renderLightingScoreChart(reviewedTasks);
   renderDurationChart(reviewedTasks);
 }
 
@@ -866,12 +872,29 @@ function renderAgentErrorChart(reviewedTasks) {
 }
 
 function renderBrightnessChart(reviewedTasks) {
-  const labels = ["-2", "-1", "0", "1", "2"];
-  const items = labels.map((key) => ({
-    label: BRIGHTNESS_LABELS[key],
-    value: reviewedTasks.filter((item) => String(parseBrightness(item.review.brightness)) === key).length,
+  const items = BRIGHTNESS_BUCKETS.map((bucket) => ({
+    label: `${bucket.label} (${bucket.min}-${bucket.max})`,
+    value: reviewedTasks.filter((item) => {
+      const score = parseBrightness(item.review.brightness);
+      return score >= bucket.min && score <= bucket.max;
+    }).length,
   }));
   renderBarChart(els.brightnessChart, items, { total: reviewedTasks.length, suffix: "tasks" });
+}
+
+function renderLightingScoreChart(reviewedTasks) {
+  const byAgent = {};
+  reviewedTasks.forEach(({ task, review }) => {
+    byAgent[task.agent] ||= [];
+    byAgent[task.agent].push(parseBrightness(review.brightness));
+  });
+
+  const items = Object.entries(byAgent).sort(([a], [b]) => a.localeCompare(b)).map(([agent, scores]) => {
+    const average = scores.reduce((sum, value) => sum + value, 0) / scores.length;
+    return { label: agent, value: Number(average.toFixed(1)), detail: formatBrightness(average) };
+  });
+
+  renderBarChart(els.lightingScoreChart, items, { max: 100 });
 }
 
 function renderDurationChart(reviewedTasks) {
@@ -925,13 +948,13 @@ function exportResultsCsv() {
   const headers = [
     "sample_number", "source_row", "agent", "agent_status", "duration_minutes", "start", "end",
     "venue_name", "venue_id", "venue_config_id", "venue_config", "event_ids", "event_names",
-    "agent_issue_notes", "vfs_url", "qa_decision", "brightness_rating", "brightness_score", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
+    "agent_issue_notes", "vfs_url", "qa_decision", "brightness_score", "brightness_rating", "qa_notes", "reviewed_at", "workbook_name", "sample_seed", "sample_mode"
   ];
 
   const rows = reviewedTasks.map(({ task, review, sampleNumber }) => [
     sampleNumber, task.rowNumber, task.agent, task.status, task.duration, task.start, task.end,
     task.venueName, task.venueId, task.configId, task.configName, task.eventIds, task.eventNames,
-    task.issueNotes, task.vfsUrl, formatDecision(review.decision), formatBrightness(review.brightness), parseBrightness(review.brightness), review.notes || "", review.reviewedAt || "",
+    task.issueNotes, task.vfsUrl, formatDecision(review.decision), parseBrightness(review.brightness), getBrightnessLabel(review.brightness), review.notes || "", review.reviewedAt || "",
     state.workbookName, state.seed, state.sampleMode
   ]);
 
@@ -1114,20 +1137,33 @@ function formatDuration(value) {
 }
 
 function parseBrightness(value) {
-  const parsed = parseInt(value, 10);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(-2, Math.min(2, parsed));
+  const parsed = parseFloat(value);
+  if (!Number.isFinite(parsed)) return BRIGHTNESS_DEFAULT;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function getBrightnessLabel(value) {
+  const score = parseBrightness(value);
+  const bucket = BRIGHTNESS_BUCKETS.find((item) => score >= item.min && score <= item.max);
+  return bucket?.label || "Perfect";
+}
+
+function isBrightnessPerfect(value) {
+  const score = parseBrightness(value);
+  return score >= BRIGHTNESS_PERFECT_MIN && score <= BRIGHTNESS_PERFECT_MAX;
 }
 
 function formatBrightness(value) {
-  return BRIGHTNESS_LABELS[String(parseBrightness(value))] || "Perfect";
+  const score = parseBrightness(value);
+  return `${score} (${getBrightnessLabel(score)})`;
 }
 
 function updateBrightnessControl(value) {
   const brightness = parseBrightness(value);
+  const label = getBrightnessLabel(brightness);
   if (els.brightnessSlider) els.brightnessSlider.value = String(brightness);
   if (els.brightnessValue) els.brightnessValue.textContent = formatBrightness(brightness);
-  if (els.brightnessHint) els.brightnessHint.textContent = BRIGHTNESS_HINTS[String(brightness)] || BRIGHTNESS_HINTS["0"];
+  if (els.brightnessHint) els.brightnessHint.textContent = `0 = too dark, 50 = ideal, 100 = too bright. Current guide: ${label}.`;
 }
 
 function formatDecision(value) {
