@@ -1,4 +1,4 @@
-const STORAGE_KEY = "vfsQaToolSessionV1";
+const STORAGE_KEY = "vfsQaToolSessionV3";
 
 const state = {
   workbookName: "",
@@ -67,20 +67,7 @@ async function handleFileUpload(event) {
   if (!file) return;
 
   try {
-    await ensureXlsxLoaded();
-    const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false, raw: false });
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    const rows = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      defval: "",
-      raw: false,
-      // Keep blank rows so the Header row number matches the real spreadsheet row number.
-      // The VFS workbook often has a blank row 1, then rough headers on row 2, then real headers on row 3.
-      blankrows: true,
-    });
-
+    const rows = await parseSpreadsheetFile(file);
     resetStateForNewWorkbook(file.name, rows);
     processRows();
     updateAllViews();
@@ -88,6 +75,94 @@ async function handleFileUpload(event) {
   } catch (error) {
     showWarnings([`Could not read the file. ${error.message || error}`]);
   }
+}
+
+async function parseSpreadsheetFile(file) {
+  const arrayBuffer = await file.arrayBuffer();
+
+  if (isCsvFile(file)) {
+    const text = decodeTextBuffer(arrayBuffer);
+    return parseCsv(text);
+  }
+
+  await ensureXlsxLoaded();
+  const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false, raw: false });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  return XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: "",
+    raw: false,
+    // Keep blank rows so the Header row number matches the real spreadsheet row number.
+    // The VFS workbook often has a blank row 1, then rough headers on row 2, then real headers on row 3.
+    blankrows: true,
+  });
+}
+
+function isCsvFile(file) {
+  return /\.csv$/i.test(file.name || "") || /csv/i.test(file.type || "");
+}
+
+function decodeTextBuffer(arrayBuffer) {
+  const encodings = [
+    { label: "utf-8", options: { fatal: true } },
+    { label: "windows-1252" },
+    { label: "iso-8859-1" },
+  ];
+
+  for (const encoding of encodings) {
+    try {
+      return new TextDecoder(encoding.label, encoding.options || {}).decode(arrayBuffer).replace(/^\uFEFF/, "");
+    } catch (error) {
+      // Try the next encoding. VFS CSV exports can contain Windows-1252 characters.
+    }
+  }
+
+  return new TextDecoder().decode(arrayBuffer).replace(/^\uFEFF/, "");
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  let justEndedRow = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      justEndedRow = false;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+      justEndedRow = false;
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      justEndedRow = true;
+      if (char === "\r" && next === "\n") i += 1;
+    } else {
+      cell += char;
+      justEndedRow = false;
+    }
+  }
+
+  if (cell.length || row.length || !justEndedRow) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 function ensureXlsxLoaded() {
@@ -148,8 +223,14 @@ function processRows() {
   state.currentIndex = 0;
   state.reviews = {};
 
-  required.forEach((key) => {
-    if (state.columnMap[key] === -1) warnings.push(`Could not detect required column: ${key}. Check the header row setting.`);
+  const missingRequired = required.filter((key) => state.columnMap[key] === -1);
+  if (missingRequired.length) {
+    const previewHeaders = state.headers.slice(0, 30).join(" | ") || "No headers found";
+    warnings.push(`Using header row ${state.headerRowNumber}. Detected headers: ${previewHeaders}`);
+  }
+
+  missingRequired.forEach((key) => {
+    warnings.push(`Could not detect required column: ${key}. Check the header row setting.`);
   });
 
   for (let rowIndex = headerIndex + 1; rowIndex < state.rawRows.length; rowIndex += 1) {
@@ -191,7 +272,10 @@ function autoDetectHeaderRow(rows, requiredKeys) {
     const requiredMatches = requiredKeys.filter((key) => columnMap[key] !== -1).length;
     const optionalMatches = ["duration", "issueNotes", "venueName", "configName", "eventIds", "eventNames", "taskType"]
       .filter((key) => columnMap[key] !== -1).length;
-    const score = (requiredMatches * 10) + optionalMatches;
+    const normalizedHeaderText = headers.map(normalizeKey).join("|");
+    const vfsSpecificBonus = ["VENUECONFIGID", "VENUECONFIG", "ISSUENOTES", "TASKTYPE", "ALLEVENTIDS"]
+      .filter((token) => normalizedHeaderText.includes(token)).length;
+    const score = (requiredMatches * 10) + optionalMatches + vfsSpecificBonus;
 
     if (!best || score > best.score) {
       best = { index, headers, columnMap, requiredMatches, score };

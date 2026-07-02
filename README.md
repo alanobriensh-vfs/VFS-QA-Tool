@@ -50,6 +50,10 @@ This first version is fully static. Uploaded workbooks and QA notes are processe
 Because this is hosted on GitHub Pages without a backend, QA results are stored locally in the reviewer's browser and/or exported as CSV. For a shared team dashboard later, add a backend such as Google Sheets, Supabase, Firebase, or a small API.
 
 
+## v3 fix
+
+Fixed CSV uploads that use Windows-1252/Excel-style encoding. CSV files now use a built-in parser instead of sending CSVs through the XLSX parser, which makes detection of `VENUE_ID` and `VENUE_CONFIG_ID` more reliable. The app also cache-busts `app.js` and `styles.css` so GitHub Pages does not keep serving an older script.
+
 ## v2 fix
 
 Fixed CSV parsing for VFS workbook exports that contain a blank first row. The app now preserves blank rows and can auto-detect the actual header row containing `AGENT`, `STATUS`, `VENUE_ID`, and `VENUE_CONFIG_ID`.
