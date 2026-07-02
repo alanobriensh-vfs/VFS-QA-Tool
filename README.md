@@ -23,17 +23,16 @@ A static GitHub Pages web app for QA sampling VFS workbook tasks.
 - Exports QA results to CSV.
 - Exports the current session to JSON.
 
-## Version 6 updates
+## Version 7 updates
 
-- Replaced the fixed brightness labels with a numeric 0-100 lighting score.
-- `0` means too dark, `50` is ideal, and `100` means too bright.
-- The app shows scores with a guide label, for example `38 (Slightly too dark)`.
-- Dashboard now includes average lighting score across reviewed tasks.
-- Agent stats now include average lighting score per agent.
-- Added an average lighting score by agent chart for tracking lighting trends over time.
-- Brightness distribution chart now groups scores into useful ranges.
-- CSV export now includes the numeric brightness score and guide label.
-- Kept the v5 charts and v4 guided workflow.
+- Added a full dark visual refresh with glass-style cards, glow accents, and a cleaner app feel.
+- Reworked dashboard charts so they look more visual and less like plain tables.
+- Added a donut chart for QA decisions.
+- Added a lighting score gauge-style chart that shows agent averages against the ideal score of 50.
+- Added stronger visual bar charts for error rate, duration, and brightness distribution.
+- Added dashboard insight cards for quality signal, lighting signal, and training watch.
+- Kept the v6 numeric 0-100 lighting score model.
+- Kept the existing upload, sampling, review, export, and local-save logic intact.
 
 ## GitHub Pages setup
 

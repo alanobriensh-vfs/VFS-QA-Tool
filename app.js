@@ -64,7 +64,7 @@ function cacheElements() {
     "taskVenueId", "taskConfigId", "taskConfigName", "taskIssueNotes", "qaNotesInput", "brightnessSlider",
     "brightnessValue", "brightnessHint", "prevTaskBtn", "saveReviewBtn", "nextTaskBtn", "reviewedMetric",
     "errorsMetric", "errorRateMetric", "avgDurationMetric", "brightnessIssueMetric", "avgBrightnessMetric", "decisionChart",
-    "agentErrorChart", "brightnessChart", "lightingScoreChart", "durationChart", "agentStatsTable", "reviewedTasksTable",
+    "agentErrorChart", "brightnessChart", "lightingScoreChart", "durationChart", "qualitySignalInsight", "lightingSignalInsight", "trainingWatchInsight", "agentStatsTable", "reviewedTasksTable",
     "exportCsvBtn", "exportJsonBtn", "loadSavedBtn", "clearSavedBtn",
     "goSampleBtn", "startReviewBtn", "goDashboardBtn", "backUploadBtn", "backSampleBtn", "backReviewBtn", "restartBtn",
     "sampleWorkbookName", "sampleCandidateCount", "sampleSelectedCount", "sampleModeLabel", "sampleRosterTable", "toast"
@@ -752,6 +752,7 @@ function updateDashboard() {
 
   renderAgentStats(reviewedTasks);
   renderReviewedTasks(reviewedTasks);
+  renderDashboardInsights(reviewedTasks, { errors, avgDuration, avgBrightness, brightnessIssues });
   renderDashboardCharts(reviewedTasks);
 }
 
@@ -832,6 +833,54 @@ function renderReviewedTasks(reviewedTasks) {
   }).join("");
 }
 
+function renderDashboardInsights(reviewedTasks, summary) {
+  if (!els.qualitySignalInsight || !els.lightingSignalInsight || !els.trainingWatchInsight) return;
+
+  if (!reviewedTasks.length) {
+    els.qualitySignalInsight.textContent = "No reviews yet";
+    els.lightingSignalInsight.textContent = "No lighting scores yet";
+    els.trainingWatchInsight.textContent = "No agents flagged";
+    return;
+  }
+
+  const errorRate = Math.round((summary.errors / reviewedTasks.length) * 100);
+  els.qualitySignalInsight.textContent = `${errorRate}% error rate across ${reviewedTasks.length} reviewed`;
+
+  if (summary.avgBrightness === null) {
+    els.lightingSignalInsight.textContent = "No lighting scores yet";
+  } else {
+    const delta = Math.abs(summary.avgBrightness - BRIGHTNESS_DEFAULT).toFixed(1);
+    els.lightingSignalInsight.textContent = `${formatBrightness(summary.avgBrightness)} | ${delta} from perfect`;
+  }
+
+  const byAgent = {};
+  reviewedTasks.forEach(({ task, review }) => {
+    byAgent[task.agent] ||= { reviewed: 0, errors: 0, brightnessScores: [], durations: [] };
+    byAgent[task.agent].reviewed += 1;
+    if (isErrorDecision(review.decision)) byAgent[task.agent].errors += 1;
+    byAgent[task.agent].brightnessScores.push(parseBrightness(review.brightness));
+    const duration = parseFloat(task.duration);
+    if (Number.isFinite(duration)) byAgent[task.agent].durations.push(duration);
+  });
+
+  const ranked = Object.entries(byAgent).map(([agent, bucket]) => {
+    const errorRateValue = bucket.reviewed ? (bucket.errors / bucket.reviewed) * 100 : 0;
+    const avgBrightness = bucket.brightnessScores.length
+      ? bucket.brightnessScores.reduce((sum, value) => sum + value, 0) / bucket.brightnessScores.length
+      : BRIGHTNESS_DEFAULT;
+    const lightingDrift = Math.abs(avgBrightness - BRIGHTNESS_DEFAULT);
+    const avgDuration = bucket.durations.length
+      ? bucket.durations.reduce((sum, value) => sum + value, 0) / bucket.durations.length
+      : 0;
+    return { agent, errorRateValue, lightingDrift, avgDuration, reviewed: bucket.reviewed };
+  }).sort((a, b) => (b.errorRateValue + b.lightingDrift) - (a.errorRateValue + a.lightingDrift));
+
+  const watch = ranked[0];
+  els.trainingWatchInsight.textContent = watch
+    ? `${watch.agent}: ${Math.round(watch.errorRateValue)}% errors, ${watch.lightingDrift.toFixed(1)} lighting drift`
+    : "No agents flagged";
+}
+
 function renderDashboardCharts(reviewedTasks) {
   renderDecisionChart(reviewedTasks);
   renderAgentErrorChart(reviewedTasks);
@@ -851,7 +900,7 @@ function renderDecisionChart(reviewedTasks) {
     label,
     value: reviewedTasks.filter((item) => item.review.decision === key).length,
   }));
-  renderBarChart(els.decisionChart, items, { total: reviewedTasks.length, suffix: "tasks" });
+  renderDonutChart(els.decisionChart, items, { total: reviewedTasks.length, centerLabel: "QA", suffix: "tasks" });
 }
 
 function renderAgentErrorChart(reviewedTasks) {
@@ -868,7 +917,7 @@ function renderAgentErrorChart(reviewedTasks) {
     detail: `${bucket.errors}/${bucket.reviewed} errors`,
   }));
 
-  renderBarChart(els.agentErrorChart, items, { max: 100, suffix: "%" });
+  renderBarChart(els.agentErrorChart, items, { max: 100, suffix: "%", tone: "danger" });
 }
 
 function renderBrightnessChart(reviewedTasks) {
@@ -879,7 +928,7 @@ function renderBrightnessChart(reviewedTasks) {
       return score >= bucket.min && score <= bucket.max;
     }).length,
   }));
-  renderBarChart(els.brightnessChart, items, { total: reviewedTasks.length, suffix: "tasks" });
+  renderBarChart(els.brightnessChart, items, { total: reviewedTasks.length, suffix: "tasks", tone: "spectrum" });
 }
 
 function renderLightingScoreChart(reviewedTasks) {
@@ -894,7 +943,7 @@ function renderLightingScoreChart(reviewedTasks) {
     return { label: agent, value: Number(average.toFixed(1)), detail: formatBrightness(average) };
   });
 
-  renderBarChart(els.lightingScoreChart, items, { max: 100 });
+  renderScoreChart(els.lightingScoreChart, items, { ideal: BRIGHTNESS_DEFAULT });
 }
 
 function renderDurationChart(reviewedTasks) {
@@ -911,7 +960,76 @@ function renderDurationChart(reviewedTasks) {
     return { label: agent, value: Number(average.toFixed(1)), detail: `${average.toFixed(1)} min` };
   });
 
-  renderBarChart(els.durationChart, items, { suffix: " min" });
+  renderBarChart(els.durationChart, items, { suffix: " min", tone: "duration" });
+}
+
+function renderDonutChart(container, items, options = {}) {
+  if (!container) return;
+  const total = Number.isFinite(options.total) ? options.total : items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const positiveItems = items.filter((item) => Number(item.value) > 0);
+
+  if (!items.length || !total || !positiveItems.length) {
+    container.classList.remove("donut-chart");
+    container.classList.add("empty-chart");
+    container.textContent = "No QA results yet.";
+    return;
+  }
+
+  container.classList.remove("empty-chart");
+  container.classList.add("donut-chart");
+
+  let offset = 25;
+  const circumference = 100;
+  const rings = positiveItems.map((item, index) => {
+    const value = Number(item.value) || 0;
+    const dash = (value / total) * circumference;
+    const html = `<circle class="donut-segment segment-${index % 5}" cx="21" cy="21" r="15.915" fill="transparent" stroke-width="7" stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${offset}"></circle>`;
+    offset -= dash;
+    return html;
+  }).join("");
+
+  const legend = items.map((item, index) => {
+    const value = Number(item.value) || 0;
+    const pct = total ? Math.round((value / total) * 100) : 0;
+    return `<div class="donut-legend-item"><span class="legend-dot segment-${index % 5}"></span><strong>${escapeHtml(item.label)}</strong><em>${value} ${options.suffix || ""} · ${pct}%</em></div>`;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="donut-wrap">
+      <svg viewBox="0 0 42 42" role="img" aria-label="${escapeHtml(options.centerLabel || "Chart")}">
+        <circle class="donut-bg" cx="21" cy="21" r="15.915" fill="transparent" stroke-width="7"></circle>
+        ${rings}
+      </svg>
+      <div class="donut-center"><strong>${total}</strong><span>${escapeHtml(options.centerLabel || "Total")}</span></div>
+    </div>
+    <div class="donut-legend">${legend}</div>`;
+}
+
+function renderScoreChart(container, items, options = {}) {
+  if (!container) return;
+  if (!items.length) {
+    container.classList.remove("donut-chart");
+    container.classList.add("empty-chart");
+    container.textContent = "No QA results yet.";
+    return;
+  }
+
+  container.classList.remove("empty-chart");
+  container.classList.remove("donut-chart");
+  const ideal = Number.isFinite(options.ideal) ? options.ideal : 50;
+
+  container.innerHTML = `
+    <div class="score-scale" aria-hidden="true"><span>Dark</span><span>Perfect</span><span>Bright</span></div>
+    ${items.map((item) => {
+      const value = Math.max(0, Math.min(100, Number(item.value) || 0));
+      const drift = Math.abs(value - ideal).toFixed(1);
+      return `
+        <div class="score-row">
+          <div class="chart-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</div>
+          <div class="score-track"><span class="ideal-marker" style="left:${ideal}%"></span><span class="score-marker" style="left:${value}%"></span></div>
+          <div class="chart-value">${escapeHtml(item.detail || String(value))} · ${drift} drift</div>
+        </div>`;
+    }).join("")}`;
 }
 
 function renderBarChart(container, items, options = {}) {
@@ -922,18 +1040,21 @@ function renderBarChart(container, items, options = {}) {
     : Math.max(1, ...items.map((item) => Number(item.value) || 0));
 
   if (!items.length || (!positiveItems.length && options.total === 0)) {
+    container.classList.remove("donut-chart");
     container.classList.add("empty-chart");
     container.textContent = "No QA results yet.";
     return;
   }
 
   container.classList.remove("empty-chart");
+  container.classList.remove("donut-chart");
+  container.dataset.tone = options.tone || "default";
   container.innerHTML = items.map((item) => {
     const value = Number(item.value) || 0;
     const pct = Math.max(0, Math.min(100, (value / maxValue) * 100));
     const valueLabel = item.detail || `${value}${options.suffix ? ` ${options.suffix}` : ""}`.replace(" %", "%");
     return `
-      <div class="chart-row">
+      <div class="chart-row" style="--pct:${pct}%">
         <div class="chart-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</div>
         <div class="chart-bar-track" aria-hidden="true"><span style="width:${pct}%"></span></div>
         <div class="chart-value">${escapeHtml(valueLabel)}</div>
