@@ -76,7 +76,9 @@ async function handleFileUpload(event) {
       header: 1,
       defval: "",
       raw: false,
-      blankrows: false,
+      // Keep blank rows so the Header row number matches the real spreadsheet row number.
+      // The VFS workbook often has a blank row 1, then rough headers on row 2, then real headers on row 3.
+      blankrows: true,
     });
 
     resetStateForNewWorkbook(file.name, rows);
@@ -123,16 +125,29 @@ function resetStateForNewWorkbook(name, rows) {
 
 function processRows() {
   const warnings = [];
-  const headerIndex = Math.max(0, state.headerRowNumber - 1);
-  const headerRow = state.rawRows[headerIndex] || [];
+  const required = ["agent", "status", "venueId", "configId"];
+  let headerIndex = Math.max(0, state.headerRowNumber - 1);
+  let headerRow = state.rawRows[headerIndex] || [];
   state.headers = makeHeaders(headerRow);
   state.columnMap = detectColumns(state.headers);
+
+  if (required.some((key) => state.columnMap[key] === -1)) {
+    const detected = autoDetectHeaderRow(state.rawRows, required);
+    if (detected && detected.index !== headerIndex) {
+      headerIndex = detected.index;
+      state.headerRowNumber = detected.index + 1;
+      els.headerRowInput.value = String(state.headerRowNumber);
+      state.headers = detected.headers;
+      state.columnMap = detected.columnMap;
+      warnings.push(`Auto-detected the real header row as row ${state.headerRowNumber}.`);
+    }
+  }
+
   state.candidates = [];
   state.sample = [];
   state.currentIndex = 0;
   state.reviews = {};
 
-  const required = ["agent", "status", "venueId", "configId"];
   required.forEach((key) => {
     if (state.columnMap[key] === -1) warnings.push(`Could not detect required column: ${key}. Check the header row setting.`);
   });
@@ -164,6 +179,26 @@ function makeHeaders(headerRow) {
     seen.set(base, count + 1);
     return count ? `${base}_${count + 1}` : base;
   });
+}
+
+function autoDetectHeaderRow(rows, requiredKeys) {
+  let best = null;
+  const maxScanRows = Math.min(rows.length, 25);
+
+  for (let index = 0; index < maxScanRows; index += 1) {
+    const headers = makeHeaders(rows[index] || []);
+    const columnMap = detectColumns(headers);
+    const requiredMatches = requiredKeys.filter((key) => columnMap[key] !== -1).length;
+    const optionalMatches = ["duration", "issueNotes", "venueName", "configName", "eventIds", "eventNames", "taskType"]
+      .filter((key) => columnMap[key] !== -1).length;
+    const score = (requiredMatches * 10) + optionalMatches;
+
+    if (!best || score > best.score) {
+      best = { index, headers, columnMap, requiredMatches, score };
+    }
+  }
+
+  return best && best.requiredMatches === requiredKeys.length ? best : null;
 }
 
 function detectColumns(headers) {

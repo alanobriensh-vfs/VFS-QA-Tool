@@ -6,7 +6,9 @@ A static GitHub Pages app for QA sampling VFS workbook exports.
 
 - Uploads `.csv`, `.xlsx`, `.xls`, or `.xlsm` files in the browser.
 - Uses row 3 as the default header row.
-- Treats row 4 onward as task data.
+- Preserves blank spreadsheet rows so the header row number matches the real workbook row.
+- Auto-detects the real header row as a fallback if required columns are not found.
+- Treats the row after the detected header as task data.
 - Filters QA candidates to tasks where:
   - `AGENT` is populated.
   - `STATUS` is `Done` or `Skipped`.
@@ -46,3 +48,8 @@ This first version is fully static. Uploaded workbooks and QA notes are processe
 ## Current limitation
 
 Because this is hosted on GitHub Pages without a backend, QA results are stored locally in the reviewer's browser and/or exported as CSV. For a shared team dashboard later, add a backend such as Google Sheets, Supabase, Firebase, or a small API.
+
+
+## v2 fix
+
+Fixed CSV parsing for VFS workbook exports that contain a blank first row. The app now preserves blank rows and can auto-detect the actual header row containing `AGENT`, `STATUS`, `VENUE_ID`, and `VENUE_CONFIG_ID`.
